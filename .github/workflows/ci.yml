@@ -1,0 +1,44 @@
+name: API checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: catalog_test
+          POSTGRES_PASSWORD: catalog_test
+          POSTGRES_USER: catalog_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U catalog_test -d catalog_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ADMIN_API_KEY: ci-admin-key-with-at-least-thirty-two-characters
+      ANALYTICS_HASH_KEY: ci-analytics-key-with-at-least-thirty-two-characters
+      CORS_ORIGINS: http://localhost:8081
+      DATABASE_URL: postgresql://catalog_test:catalog_test@localhost:5432/catalog_test?schema=public
+      NODE_ENV: test
+      SWAGGER_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run db:migrate:deploy
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run test:integration
+      - run: npm run build

@@ -1,0 +1,339 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum OfferAvailability {
+  IN_STOCK
+  OUT_OF_STOCK
+  UNKNOWN
+}
+
+enum PriceChangeSource {
+  MANUAL
+  CSV
+  XLSX
+  SHEETS
+  PDF
+  WHATSAPP
+  SEED
+}
+
+enum ImportSource {
+  CSV
+  XLSX
+  SHEETS
+  PDF
+  WHATSAPP
+}
+
+enum ImportStatus {
+  UPLOADED
+  VALIDATING
+  READY
+  COMMITTED
+  FAILED
+  CANCELLED
+}
+
+enum ImportRowStatus {
+  PENDING
+  VALID
+  INVALID
+  WARNING
+  COMMITTED
+  SKIPPED
+}
+
+enum MatchMethod {
+  MERCHANT_SKU
+  BARCODE
+  SAVED_ASSOCIATION
+  SUGGESTED
+  NONE
+}
+
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+}
+
+enum ClientPlatform {
+  IOS
+  ANDROID
+  WEB
+  UNKNOWN
+}
+
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  slug        String    @unique @db.VarChar(120)
+  name        String    @db.VarChar(120)
+  description String?
+  sortOrder   Int       @default(0)
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  products    Product[]
+
+  @@index([active, sortOrder])
+}
+
+model Brand {
+  id        String    @id @default(uuid()) @db.Uuid
+  slug      String    @unique @db.VarChar(120)
+  name      String    @db.VarChar(120)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  products  Product[]
+
+  @@index([active, name])
+}
+
+model Product {
+  id              String            @id @default(uuid()) @db.Uuid
+  slug            String            @unique @db.VarChar(180)
+  name            String            @db.VarChar(240)
+  description     String?
+  model           String?           @db.VarChar(160)
+  barcode         String?           @unique @db.VarChar(32)
+  status          ProductStatus     @default(ACTIVE)
+  featured        Boolean           @default(false)
+  popularityScore Int               @default(0)
+  brandId         String            @db.Uuid
+  categoryId      String            @db.Uuid
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  brand           Brand             @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  category        Category          @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  images          ProductImage[]
+  offers          MerchantProduct[]
+  importRows      ImportRow[]
+  searchHits      SearchMerchantHit[]
+
+  @@index([status, featured, popularityScore])
+  @@index([categoryId, status, createdAt])
+  @@index([brandId, status])
+  @@index([model])
+}
+
+model ProductImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @db.Uuid
+  url       String
+  objectKey String?
+  altText   String?  @db.VarChar(240)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, sortOrder])
+  @@index([productId])
+}
+
+model Merchant {
+  id             String            @id @default(uuid()) @db.Uuid
+  slug           String            @unique @db.VarChar(140)
+  name           String            @db.VarChar(180)
+  logoUrl        String?
+  address        String?
+  city           String?           @db.VarChar(120)
+  countryCode    String?           @db.Char(2)
+  phone          String?           @db.VarChar(40)
+  email          String?           @db.VarChar(240)
+  websiteUrl     String?
+  active         Boolean           @default(true)
+  createdAt      DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
+  offers         MerchantProduct[]
+  importProfiles ImportProfile[]
+  imports        Import[]
+  searchHits     SearchMerchantHit[]
+
+  @@index([active, name])
+}
+
+model MerchantProduct {
+  id              String            @id @default(uuid()) @db.Uuid
+  merchantId      String            @db.Uuid
+  productId       String            @db.Uuid
+  merchantSku     String            @db.VarChar(120)
+  price           Decimal           @db.Decimal(14, 2)
+  currency        String            @db.VarChar(3)
+  availability    OfferAvailability @default(UNKNOWN)
+  stockQuantity   Int?
+  sourceUpdatedAt DateTime          @db.Timestamptz(3)
+  active          Boolean           @default(true)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  merchant        Merchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  product         Product           @relation(fields: [productId], references: [id], onDelete: Restrict)
+  priceHistory    PriceHistory[]
+  importRows      ImportRow[]
+  reviews         CustomerReview[]
+
+  @@unique([merchantId, merchantSku])
+  @@unique([merchantId, productId])
+  @@index([productId, active, availability, price])
+  @@index([merchantId, active, sourceUpdatedAt])
+  @@index([sourceUpdatedAt])
+}
+
+model PriceHistory {
+  id                String            @id @default(uuid()) @db.Uuid
+  merchantProductId String            @db.Uuid
+  oldPrice          Decimal?          @db.Decimal(14, 2)
+  oldCurrency       String?           @db.VarChar(3)
+  newPrice          Decimal           @db.Decimal(14, 2)
+  currency          String            @db.VarChar(3)
+  source            PriceChangeSource
+  importId          String?           @db.Uuid
+  importRowId       String?           @db.Uuid
+  actorId           String?           @db.VarChar(180)
+  changedAt         DateTime          @default(now()) @db.Timestamptz(3)
+  merchantProduct   MerchantProduct   @relation(fields: [merchantProductId], references: [id], onDelete: Cascade)
+  import            Import?           @relation(fields: [importId], references: [id], onDelete: SetNull)
+  importRow         ImportRow?        @relation(fields: [importRowId], references: [id], onDelete: SetNull)
+
+  @@index([merchantProductId, changedAt])
+  @@index([importId])
+}
+
+model CustomerReview {
+  id                  String          @id @default(uuid()) @db.Uuid
+  merchantProductId   String          @db.Uuid
+  productRating       Int             @db.SmallInt
+  merchantRating      Int             @db.SmallInt
+  reviewerDisplayName String?         @db.VarChar(120)
+  title               String?         @db.VarChar(160)
+  comment             String?
+  status              ReviewStatus    @default(PENDING)
+  moderatedBy         String?         @db.VarChar(180)
+  moderatedAt         DateTime?       @db.Timestamptz(3)
+  createdAt           DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
+  merchantProduct     MerchantProduct @relation(fields: [merchantProductId], references: [id], onDelete: Restrict)
+
+  @@index([merchantProductId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+model SearchEvent {
+  id                String              @id @default(uuid()) @db.Uuid
+  query             String              @db.VarChar(120)
+  normalizedQuery   String              @db.VarChar(120)
+  platform          ClientPlatform      @default(UNKNOWN)
+  clientVersion     String?             @db.VarChar(40)
+  anonymousIdHash   String?             @db.Char(64)
+  ipHash            String?             @db.Char(64)
+  countryCode       String?             @db.Char(2)
+  resultCount       Int
+  page              Int
+  pageSize          Int
+  createdAt         DateTime            @default(now()) @db.Timestamptz(3)
+  merchantHits      SearchMerchantHit[]
+
+  @@index([createdAt])
+  @@index([normalizedQuery, createdAt])
+  @@index([platform, createdAt])
+  @@index([anonymousIdHash, createdAt])
+}
+
+model SearchMerchantHit {
+  searchEventId String      @db.Uuid
+  merchantId    String      @db.Uuid
+  productId     String      @db.Uuid
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  searchEvent   SearchEvent @relation(fields: [searchEventId], references: [id], onDelete: Cascade)
+  merchant      Merchant    @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  product       Product     @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@id([searchEventId, merchantId, productId])
+  @@index([merchantId, createdAt])
+  @@index([productId, createdAt])
+}
+
+model ImportProfile {
+  id         String       @id @default(uuid()) @db.Uuid
+  merchantId String       @db.Uuid
+  name       String       @db.VarChar(160)
+  sourceType ImportSource
+  mapping    Json
+  active     Boolean      @default(true)
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime     @updatedAt @db.Timestamptz(3)
+  merchant   Merchant     @relation(fields: [merchantId], references: [id], onDelete: Cascade)
+  imports    Import[]
+
+  @@unique([merchantId, name])
+  @@index([merchantId, active])
+}
+
+model Import {
+  id               String         @id @default(uuid()) @db.Uuid
+  merchantId       String         @db.Uuid
+  importProfileId  String?        @db.Uuid
+  sourceType       ImportSource
+  status           ImportStatus   @default(UPLOADED)
+  originalFilename String?        @db.VarChar(260)
+  sourceReference  String?
+  storageKey       String?
+  mappingSnapshot  Json?
+  summary          Json?
+  commitKey        String?        @unique @db.VarChar(180)
+  actorId          String?        @db.VarChar(180)
+  createdAt        DateTime       @default(now()) @db.Timestamptz(3)
+  previewedAt      DateTime?      @db.Timestamptz(3)
+  committedAt      DateTime?      @db.Timestamptz(3)
+  failedAt         DateTime?      @db.Timestamptz(3)
+  merchant         Merchant       @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  importProfile    ImportProfile? @relation(fields: [importProfileId], references: [id], onDelete: SetNull)
+  rows             ImportRow[]
+  priceHistory     PriceHistory[]
+
+  @@index([merchantId, createdAt])
+  @@index([merchantId, status])
+}
+
+model ImportRow {
+  id                   String             @id @default(uuid()) @db.Uuid
+  importId             String             @db.Uuid
+  sourceRowNumber      Int
+  rawData              Json
+  normalizedData       Json?
+  matchedProductId     String?            @db.Uuid
+  merchantProductId    String?            @db.Uuid
+  matchMethod          MatchMethod        @default(NONE)
+  matchConfidence      Decimal?           @db.Decimal(5, 4)
+  proposedPrice        Decimal?           @db.Decimal(14, 2)
+  proposedCurrency     String?            @db.VarChar(3)
+  proposedStock        Int?
+  proposedAvailability OfferAvailability?
+  validationErrors     Json?
+  warnings             Json?
+  status               ImportRowStatus    @default(PENDING)
+  commitResult         Json?
+  createdAt            DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime           @updatedAt @db.Timestamptz(3)
+  import               Import             @relation(fields: [importId], references: [id], onDelete: Cascade)
+  matchedProduct       Product?           @relation(fields: [matchedProductId], references: [id], onDelete: SetNull)
+  merchantProduct      MerchantProduct?   @relation(fields: [merchantProductId], references: [id], onDelete: SetNull)
+  priceHistory         PriceHistory[]
+
+  @@unique([importId, sourceRowNumber])
+  @@index([importId, status])
+  @@index([matchedProductId])
+  @@index([merchantProductId])
+}
