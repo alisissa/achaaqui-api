@@ -154,6 +154,10 @@ describeWithDatabase('CSV import commit integration', () => {
   }): Promise<string> {
     const productId = input.productId ?? fixture.productAId;
     const status = input.status ?? ImportRowStatus.VALID;
+    const currentOffer = await prisma.merchantProduct.findFirst({
+      where: { merchantId: fixture.merchantId, productId },
+      select: { updatedAt: true },
+    });
     const created = await prisma.import.create({
       data: {
         actorId: 'integration-test',
@@ -189,7 +193,9 @@ describeWithDatabase('CSV import commit integration', () => {
               currency: input.currency ?? 'BRL',
               currentCurrency:
                 input.oldCurrency === undefined ? 'BRL' : input.oldCurrency,
-              currentPrice: input.oldPrice === undefined ? '100' : input.oldPrice,
+              currentPrice:
+                input.oldPrice === undefined ? '100' : input.oldPrice,
+              currentUpdatedAt: currentOffer?.updatedAt.toISOString() ?? null,
               merchantSku: `SKU-${productId.slice(0, 8)}`,
               model: null,
               price: input.price,
@@ -227,8 +233,12 @@ describeWithDatabase('CSV import commit integration', () => {
       commitService.commit(secondId, { confirmWarnings: false }),
     ]);
 
-    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
-    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.status === 'fulfilled'),
+    ).toHaveLength(1);
+    expect(
+      outcomes.filter((outcome) => outcome.status === 'rejected'),
+    ).toHaveLength(1);
     const firstHistory = await prisma.priceHistory.findFirstOrThrow({
       where: { merchantProductId: fixture.offerId },
       orderBy: { changedAt: 'asc' },
@@ -238,7 +248,9 @@ describeWithDatabase('CSV import commit integration', () => {
       select: { price: true },
     });
     expect(firstHistory.oldPrice?.toString()).toBe('100');
-    expect(firstHistory.newPrice.toString()).toBe(currentOffer.price.toString());
+    expect(firstHistory.newPrice.toString()).toBe(
+      currentOffer.price.toString(),
+    );
 
     const finalPrice = currentOffer.price.equals(150) ? '200' : '150';
     const refreshedId = await stagedImport({
@@ -252,7 +264,9 @@ describeWithDatabase('CSV import commit integration', () => {
       orderBy: { changedAt: 'asc' },
     });
     expect(history).toHaveLength(2);
-    expect(history[1]?.oldPrice?.toString()).toBe(history[0]?.newPrice.toString());
+    expect(history[1]?.oldPrice?.toString()).toBe(
+      history[0]?.newPrice.toString(),
+    );
   });
 
   it('does not let cancel overwrite a committed status after waiting on the row lock', async () => {
@@ -305,7 +319,9 @@ describeWithDatabase('CSV import commit integration', () => {
     await commitService.commit(importId, { confirmWarnings: false });
 
     await expect(
-      prisma.merchantProduct.findUniqueOrThrow({ where: { id: fixture.offerId } }),
+      prisma.merchantProduct.findUniqueOrThrow({
+        where: { id: fixture.offerId },
+      }),
     ).resolves.toMatchObject({ active: false });
   });
 
@@ -344,7 +360,9 @@ describeWithDatabase('CSV import commit integration', () => {
     await commitService.commit(importId, { confirmWarnings: true });
     await commitService.commit(importId, { confirmWarnings: true });
 
-    await expect(prisma.priceHistory.count({ where: { importId } })).resolves.toBe(1);
+    await expect(
+      prisma.priceHistory.count({ where: { importId } }),
+    ).resolves.toBe(1);
   });
 
   it('blocks a row when SKU and barcode resolve to different products', async () => {

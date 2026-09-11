@@ -98,4 +98,19 @@ describe('CSV import normalization', () => {
       },
     ]);
   });
+
+  it('should treat prototype-related CSV headers as data without inherited values', () => {
+    const [row] = parseCsv(
+      Buffer.from(
+        'sku,nome,preco,moeda,__proto__,constructor\n001,Phone,12,BRL,untrusted,untrusted',
+      ),
+    );
+
+    expect(row.rawData.merchantSku).toBe('001');
+    expect(Object.prototype.hasOwnProperty.call(row.rawData, '__proto__')).toBe(
+      true,
+    );
+    expect(Object.getPrototypeOf(row.rawData)).toBe(Object.prototype);
+    expect(Object.prototype).not.toHaveProperty('untrusted');
+  });
 });

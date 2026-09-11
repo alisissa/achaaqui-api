@@ -22,7 +22,7 @@ async function bootstrap(): Promise<void> {
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
   app.enableCors({
     origin: corsOrigins,
-    methods: ['GET', 'POST', 'PATCH', 'HEAD', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'],
     credentials: false,
   });
   app.setGlobalPrefix('v1');

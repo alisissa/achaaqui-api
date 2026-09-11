@@ -3,6 +3,9 @@ interface Environment {
   PORT: number;
   TRUST_PROXY_HOPS: number;
   DATABASE_URL: string;
+  DATABASE_POOL_MAX: number;
+  DATABASE_CONNECTION_TIMEOUT_MS: number;
+  DATABASE_IDLE_TIMEOUT_MS: number;
   CORS_ORIGINS: string;
   SWAGGER_ENABLED: boolean;
   FRESHNESS_AGING_HOURS: number;
@@ -137,6 +140,21 @@ export function validateEnvironment(
       'TRUST_PROXY_HOPS',
     ),
     DATABASE_URL: databaseUrl,
+    DATABASE_POOL_MAX: positiveInteger(
+      rawEnvironment.DATABASE_POOL_MAX,
+      10,
+      'DATABASE_POOL_MAX',
+    ),
+    DATABASE_CONNECTION_TIMEOUT_MS: positiveInteger(
+      rawEnvironment.DATABASE_CONNECTION_TIMEOUT_MS,
+      10_000,
+      'DATABASE_CONNECTION_TIMEOUT_MS',
+    ),
+    DATABASE_IDLE_TIMEOUT_MS: positiveInteger(
+      rawEnvironment.DATABASE_IDLE_TIMEOUT_MS,
+      10_000,
+      'DATABASE_IDLE_TIMEOUT_MS',
+    ),
     CORS_ORIGINS: corsOrigins,
     SWAGGER_ENABLED: booleanValue(
       rawEnvironment.SWAGGER_ENABLED,

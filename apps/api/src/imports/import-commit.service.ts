@@ -1,6 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
+import { lockMerchantOffers } from '../common/offer-lock';
 import {
   ImportRowStatus,
   ImportStatus,
@@ -29,6 +30,7 @@ interface CommitRow {
   action: ImportAction;
   stagedPrice: Prisma.Decimal | null;
   stagedCurrency: string | null;
+  stagedUpdatedAt: string | null;
 }
 
 interface CurrentOffer {
@@ -36,6 +38,7 @@ interface CurrentOffer {
   productId: string;
   price: Prisma.Decimal;
   currency: string;
+  updatedAt: Date;
 }
 
 @Injectable()
@@ -48,6 +51,7 @@ export class ImportCommitService {
       select: {
         id: true,
         merchantId: true,
+        sourceType: true,
         status: true,
         summary: true,
         rows: {
@@ -120,6 +124,7 @@ export class ImportCommitService {
           ? new Prisma.Decimal(normalized.currentPrice)
           : null,
         stagedCurrency: normalized.currentCurrency,
+        stagedUpdatedAt: normalized.currentUpdatedAt,
       } satisfies CommitRow;
     });
     const changedRows = commitRows.filter(
@@ -140,7 +145,7 @@ export class ImportCommitService {
         throw new ConflictException('Import is already being committed.');
       }
 
-      await this.lockOffers(
+      await lockMerchantOffers(
         transaction,
         stagedImport.merchantId,
         commitRows.map((row) => row.productId),
@@ -161,7 +166,9 @@ export class ImportCommitService {
         },
         select: { id: true },
       });
-      if (products.length !== new Set(commitRows.map((row) => row.productId)).size) {
+      if (
+        products.length !== new Set(commitRows.map((row) => row.productId)).size
+      ) {
         throw new ConflictException(
           'One or more products changed after preview. Create a new preview before committing.',
         );
@@ -171,14 +178,25 @@ export class ImportCommitService {
           merchantId: stagedImport.merchantId,
           productId: { in: commitRows.map((row) => row.productId) },
         },
-        select: { id: true, productId: true, price: true, currency: true },
+        select: {
+          id: true,
+          productId: true,
+          price: true,
+          currency: true,
+          updatedAt: true,
+        },
       });
       const currentOffersByProduct = new Map(
         currentOffers.map((offer) => [offer.productId, offer]),
       );
       this.assertPreviewIsCurrent(commitRows, currentOffersByProduct);
 
-      const committedAt = new Date();
+      const committedAt = new Date(
+        Math.max(
+          Date.now(),
+          ...currentOffers.map((offer) => offer.updatedAt.getTime() + 1),
+        ),
+      );
       if (commitRows.length > 0) {
         await this.upsertOffers(
           transaction,
@@ -217,7 +235,10 @@ export class ImportCommitService {
             oldCurrency: previousOffer?.currency ?? null,
             newPrice: row.price,
             currency: row.currency,
-            source: PriceChangeSource.CSV,
+            source:
+              stagedImport.sourceType === 'XLSX'
+                ? PriceChangeSource.XLSX
+                : PriceChangeSource.CSV,
             importId: id,
             importRowId: row.id,
             actorId: 'admin-api-key',
@@ -298,23 +319,6 @@ export class ImportCommitService {
     `);
   }
 
-  private async lockOffers(
-    transaction: Prisma.TransactionClient,
-    merchantId: string,
-    productIds: readonly string[],
-  ): Promise<void> {
-    const lockKeys = [...new Set(productIds)]
-      .map((productId) => `${merchantId}:${productId}`)
-      .sort();
-    if (lockKeys.length === 0) return;
-
-    await transaction.$executeRaw(Prisma.sql`
-      SELECT pg_advisory_xact_lock(hashtextextended(lock_key, 0))
-      FROM unnest(ARRAY[${Prisma.join(lockKeys)}]::text[]) AS lock_key
-      ORDER BY lock_key
-    `);
-  }
-
   private assertPreviewIsCurrent(
     rows: readonly CommitRow[],
     currentOffers: ReadonlyMap<string, CurrentOffer>,
@@ -327,9 +331,12 @@ export class ImportCommitService {
         current && row.stagedPrice && current.price.equals(row.stagedPrice),
       );
       const sameCurrency = current?.currency === row.stagedCurrency;
+      const sameVersion =
+        current?.updatedAt.toISOString() === row.stagedUpdatedAt;
 
       if (
-        (stagedExistingOffer && (!sameOffer || !samePrice || !sameCurrency)) ||
+        (stagedExistingOffer &&
+          (!sameOffer || !samePrice || !sameCurrency || !sameVersion)) ||
         (!stagedExistingOffer && current)
       ) {
         throw new ConflictException(

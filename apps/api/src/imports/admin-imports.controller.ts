@@ -6,6 +6,7 @@ import {
   Param,
   Post,
   Query,
+  StreamableFile,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -32,8 +33,11 @@ import {
   AdminImportQueryDto,
   CommitImportDto,
   UploadCsvDto,
+  ImportTemplateQueryDto,
 } from './imports.dto';
+import { ImportTemplateService } from './import-template.service';
 import { ImportsService } from './imports.service';
+import { IMPORT_UPLOAD_OPTIONS } from './import-upload-options';
 
 @ApiTags('admin imports')
 @ApiBearerAuth('admin-key')
@@ -45,14 +49,34 @@ export class AdminImportsController {
     private readonly importsService: ImportsService,
     private readonly stagingService: ImportStagingService,
     private readonly commitService: ImportCommitService,
+    private readonly templateService: ImportTemplateService,
   ) {}
 
+  @Get('template')
+  async template(
+    @Query() query: ImportTemplateQueryDto,
+  ): Promise<StreamableFile> {
+    const file = await this.templateService.download(query);
+    return new StreamableFile(file.buffer, {
+      type: file.contentType,
+      disposition: `attachment; filename="${file.filename}"`,
+    });
+  }
+
+  @Post('xlsx')
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
+  @ApiConsumes('multipart/form-data')
+  @ApiCreatedResponse({ type: AdminImportDetailDto })
+  async uploadXlsx(
+    @Body() input: UploadCsvDto,
+    @UploadedFile() file: UploadedCsvFile | undefined,
+  ): Promise<AdminImportDetailDto> {
+    const id = await this.stagingService.stageXlsx(input, file);
+    return await this.importsService.detail(id);
+  }
+
   @Post('csv')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { files: 1, fileSize: 2_097_152 },
-    }),
-  )
+  @UseInterceptors(FileInterceptor('file', IMPORT_UPLOAD_OPTIONS))
   @ApiConsumes('multipart/form-data')
   @ApiCreatedResponse({ type: AdminImportDetailDto })
   async uploadCsv(

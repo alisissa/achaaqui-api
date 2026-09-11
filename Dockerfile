@@ -1,5 +1,5 @@
 FROM node:22.22.3-alpine AS base
-RUN npm install --global npm@11.6.2
+RUN npm install --global npm@11.19.1
 
 FROM base AS dependencies
 WORKDIR /app
@@ -9,7 +9,9 @@ RUN npm ci
 
 FROM dependencies AS build
 COPY apps/api ./apps/api
-RUN npm run build
+# Prisma generation validates this setting but does not connect to a database.
+# Do not provide a real database URL or copy an environment file during builds.
+RUN DATABASE_URL=postgresql://build:build@127.0.0.1:1/build npm run build
 
 FROM dependencies AS migrations
 ENV NODE_ENV=production

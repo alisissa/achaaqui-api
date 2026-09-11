@@ -68,4 +68,40 @@ describe('validateEnvironment', () => {
 
     expect(environment.SWAGGER_ENABLED).toBe(false);
   });
+
+  it('should provide finite database connection and idle timeouts', () => {
+    const environment = validateEnvironment(validEnvironment);
+
+    expect(environment.DATABASE_POOL_MAX).toBe(10);
+    expect(environment.DATABASE_CONNECTION_TIMEOUT_MS).toBe(10_000);
+    expect(environment.DATABASE_IDLE_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it('should transform explicit database pool settings', () => {
+    const environment = validateEnvironment({
+      ...validEnvironment,
+      DATABASE_POOL_MAX: '5',
+      DATABASE_CONNECTION_TIMEOUT_MS: '15000',
+      DATABASE_IDLE_TIMEOUT_MS: '20000',
+    });
+
+    expect(environment.DATABASE_POOL_MAX).toBe(5);
+    expect(environment.DATABASE_CONNECTION_TIMEOUT_MS).toBe(15_000);
+    expect(environment.DATABASE_IDLE_TIMEOUT_MS).toBe(20_000);
+  });
+
+  describe.each([
+    'DATABASE_POOL_MAX',
+    'DATABASE_CONNECTION_TIMEOUT_MS',
+    'DATABASE_IDLE_TIMEOUT_MS',
+  ])('%s', (variable) => {
+    it.each(['0', '-1', '1.5', 'not-a-number', '', 'Infinity'])(
+      'should reject invalid value %j',
+      (value) => {
+        expect(() =>
+          validateEnvironment({ ...validEnvironment, [variable]: value }),
+        ).toThrow(`${variable} must be a positive integer.`);
+      },
+    );
+  });
 });

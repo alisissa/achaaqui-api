@@ -5,19 +5,20 @@ This repository is the server-side workspace for the catalog product.
 - `apps/api` — NestJS REST API and Prisma/PostgreSQL data model.
 - `docs` — architecture decisions and the implementation tracker.
 
-The customer app lives in `achaaqui-mobile`, and the operational web app lives in the user-provided `achaaqui-admin` repository. The product name is AchaAqui; package identifiers, production hosting, and authentication provider remain intentionally unresolved.
+The customer app lives in `achaaqui-mobile`, and the operational web app lives in the user-provided `achaaqui-admin` repository. The product name is AchaAqui. The selected backend target is Cloud Run in `us-east4` with Neon PostgreSQL; Firebase merchant authentication remains to be implemented. The API is not deployed by this repository's CI.
 
 ## Requirements
 
 - Node.js 22.22.3 (see `.nvmrc`)
-- npm 11+
+- npm 11.19.1 (pinned in `packageManager`, Docker, and CI)
 - Docker with Compose, or another local PostgreSQL 16+ instance
 
 ## Local setup
 
 ```bash
 nvm use
-npm install
+npm install --global npm@11.19.1
+npm ci
 cp apps/api/.env.example apps/api/.env
 # Replace the two example secret values before starting the API.
 docker compose up -d postgres
@@ -28,7 +29,11 @@ npm run dev:api
 
 The API is served at `http://localhost:3001/v1`. Swagger UI is at `http://localhost:3001/v1/docs`, and the OpenAPI JSON document is at `http://localhost:3001/v1/openapi.json`. Swagger defaults off outside development. Admin endpoints require the server-side bearer key configured as `ADMIN_API_KEY`.
 
-## Merchant CSV imports
+Use the declared npm version: older npm 11 workspace resolution can silently
+retain vulnerable transitive packages despite root overrides. See the
+[dependency remediation and verification](docs/dependency-remediation.md).
+
+## Merchant CSV and Excel imports
 
 The current import slice exposes protected endpoints under `/v1/admin/imports`
 for upload, history, preview, commit, and cancellation. The canonical fields are
@@ -42,8 +47,26 @@ Commits are explicit, transactional, and idempotent per import. Warning rows
 require an unchecked operator acknowledgement. Overlapping imports for one
 offer are serialized and stale previews are rejected. Actual price or currency
 changes create truthful price history; unchanged rows only refresh the offer
-source timestamp and never reactivate an offer. The first bounded version accepts CSV up to 500 rows/2 MB. XLSX and
-saved merchant-specific mappings remain deferred.
+source timestamp and never reactivate an offer. CSV and XLSX share this pipeline,
+with limits of 500 rows/2 MB. Protected downloads provide blank CSV/XLSX templates
+or a merchant's current active offers for editing and re-uploading. Excel inputs
+are bounded before parsing and reject formulas, numeric identifiers, hidden rows,
+merged cells, macros, and extra data sheets. Saved custom mappings remain deferred.
+
+## Individual merchant offers
+
+The protected `/v1/admin/merchants/:merchantId/offers` endpoints support listing,
+adding, editing, removing, and restoring merchant offers. Operators can select an
+existing catalog product or create a new product and its first offer atomically.
+Removal hides only the merchant's offer and preserves shared products and history.
+Explicit confirmation, optimistic versions, and the same transaction locks as
+imports protect manual edits. These are administrator-operated workflows, not
+merchant self-service authentication.
+
+See [merchant workflows and template rules](docs/merchant-workflows.md), the
+[local testing checklist](../achaaqui-admin/docs/merchant-testing.md), and the
+[GCP migration plan](docs/gcp-migration-plan.md). Cloud and DNS changes are not
+part of this implementation.
 
 ## Verification
 
@@ -51,8 +74,18 @@ saved merchant-specific mappings remain deferred.
 npm run lint
 npm run typecheck
 npm test
+npm run test:deployment
 npm run test:integration
 npm run build
 ```
 
 See [docs/architecture-decisions.md](docs/architecture-decisions.md) for current technical decisions and [docs/implementation-tracker.md](docs/implementation-tracker.md) for scope and status.
+
+## Cloud Run preparation
+
+The [API-only deployment review](docs/cloud-run-api.md) includes a private-first
+service template, scale-to-zero settings, explicit connection-pool limits, and
+secret/IAM approval gates. Builds exclude local environment files and need no
+database credentials. `npm run test:deployment` validates the intended template
+offline; it never contacts GCP. No cloud deployment, automatic push, admin rollout,
+or domain change is included.

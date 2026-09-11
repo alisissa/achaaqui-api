@@ -102,7 +102,9 @@ export function canonicalHeader(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '');
-  return HEADER_ALIASES[cleaned] ?? value.trim();
+  return Object.hasOwn(HEADER_ALIASES, cleaned)
+    ? HEADER_ALIASES[cleaned]
+    : value.trim();
 }
 
 export function normalizeIdentifier(value: unknown): string | null {
@@ -135,7 +137,10 @@ export function normalizePrice(value: unknown): {
     const groupedIntegerPattern = new RegExp(
       `^\\d{1,3}(?:\\${thousandsSeparator}\\d{3})+$`,
     );
-    if (!/^\d+$/.test(integerPart) && !groupedIntegerPattern.test(integerPart)) {
+    if (
+      !/^\d+$/.test(integerPart) &&
+      !groupedIntegerPattern.test(integerPart)
+    ) {
       return {
         value: null,
         error: 'Price has invalid thousands grouping.',
@@ -262,6 +267,16 @@ export function normalizeImportRecord(
 
   if (!merchantSku) errors.push('Merchant SKU is required.');
   if (!productName) errors.push('Product name is required.');
+  for (const [field, value, max] of [
+    ['Merchant SKU', merchantSku, 120],
+    ['Product name', productName, 240],
+    ['Brand', cleanText(record.brand), 120],
+    ['Model', cleanText(record.model), 160],
+    ['Barcode', normalizeIdentifier(record.barcode), 32],
+  ] as const) {
+    if (value && value.length > max)
+      errors.push(`${field} exceeds ${max} characters.`);
+  }
   if (!currency) {
     errors.push('Currency is required.');
   } else if (!supportedCurrencies.has(currency)) {

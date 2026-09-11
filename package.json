@@ -4,11 +4,26 @@
   "private": true,
   "engines": {
     "node": ">=22.22.3 <23",
-    "npm": ">=11"
+    "npm": ">=11.19.1 <12"
   },
+  "packageManager": "npm@11.19.1",
   "workspaces": [
     "apps/*"
   ],
+  "overrides": {
+    "@nestjs/platform-express@11.2.3": {
+      "multer": "2.3.0"
+    },
+    "@prisma/config@7.10.0": {
+      "deepmerge-ts": "8.0.2"
+    },
+    "prisma@7.10.0": {
+      "mysql2": "3.24.4"
+    },
+    "exceljs@4.4.0": {
+      "uuid": "11.1.1"
+    }
+  },
   "scripts": {
     "build": "npm run build --workspace=@catalog/api",
     "dev:api": "npm run start:dev --workspace=@catalog/api",
@@ -16,6 +31,8 @@
     "typecheck": "npm run typecheck --workspace=@catalog/api",
     "test": "npm run test --workspace=@catalog/api",
     "test:integration": "npm run test:integration --workspace=@catalog/api",
+    "test:deployment": "node --test deploy/cloud-run/config.test.mjs",
+    "test:dependencies": "node --test deploy/cloud-run/dependencies.test.mjs",
     "db:generate": "npm run db:generate --workspace=@catalog/api",
     "db:migrate": "npm run db:migrate --workspace=@catalog/api",
     "db:migrate:deploy": "npm run db:migrate:deploy --workspace=@catalog/api",

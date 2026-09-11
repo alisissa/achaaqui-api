@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsOptional, IsUUID } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
 import { PaginationMetaDto } from '../common/dto/pagination-meta.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import {
@@ -13,6 +13,16 @@ import {
 export class UploadCsvDto {
   @IsUUID()
   declare merchantId: string;
+}
+
+export class ImportTemplateQueryDto {
+  @IsOptional()
+  @IsIn(['csv', 'xlsx'])
+  format: 'csv' | 'xlsx' = 'xlsx';
+
+  @IsOptional()
+  @IsUUID()
+  merchantId?: string;
 }
 
 export class CommitImportDto {

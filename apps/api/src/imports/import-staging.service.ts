@@ -16,9 +16,11 @@ import {
   ProductStatus,
 } from '../generated/prisma/client';
 import { parseCsv, type ParsedCsvRow } from './csv-parser';
+import { parseXlsx } from './xlsx-parser';
 import { UploadCsvDto } from './imports.dto';
 import {
   normalizeImportRecord,
+  normalizeIdentifier,
   type NormalizedImportRow,
 } from './import-normalization';
 import {
@@ -44,6 +46,7 @@ interface ExistingOffer {
   currency: string;
   availability: OfferAvailability;
   stockQuantity: number | null;
+  updatedAt: Date;
   product: { id: string; name: string; barcode: string | null };
 }
 
@@ -95,7 +98,22 @@ export class ImportStagingService {
     input: UploadCsvDto,
     file: UploadedCsvFile | undefined,
   ): Promise<string> {
-    this.validateFile(file);
+    return await this.stage(input, file, ImportSource.CSV);
+  }
+
+  async stageXlsx(
+    input: UploadCsvDto,
+    file: UploadedCsvFile | undefined,
+  ): Promise<string> {
+    return await this.stage(input, file, ImportSource.XLSX);
+  }
+
+  private async stage(
+    input: UploadCsvDto,
+    file: UploadedCsvFile | undefined,
+    sourceType: 'CSV' | 'XLSX',
+  ): Promise<string> {
+    this.validateFile(file, sourceType);
     const merchant = await this.prisma.merchant.findUnique({
       where: { id: input.merchantId },
       select: { id: true, active: true },
@@ -107,9 +125,12 @@ export class ImportStagingService {
     const fileHash = createHash('sha256').update(file.buffer).digest('hex');
     const commitKey = `import:${randomUUID()}`;
 
-    const parsedRows = parseCsv(file.buffer);
+    const parsedRows =
+      sourceType === ImportSource.XLSX
+        ? await parseXlsx(file.buffer, this.maxRows)
+        : parseCsv(file.buffer, this.maxRows);
     if (parsedRows.length === 0) {
-      throw new BadRequestException('The CSV contains no data rows.');
+      throw new BadRequestException('The file contains no data rows.');
     }
     if (parsedRows.length > this.maxRows) {
       throw new BadRequestException(
@@ -123,13 +144,13 @@ export class ImportStagingService {
     const created = await this.prisma.import.create({
       data: {
         merchantId: merchant.id,
-        sourceType: ImportSource.CSV,
+        sourceType,
         status: ImportStatus.READY,
         originalFilename: file.originalname,
         sourceReference: `sha256:${fileHash}`,
         mappingSnapshot: {
           version: 1,
-          mode: 'canonical-csv',
+          mode: `canonical-${sourceType.toLowerCase()}`,
         },
         summary: { ...summary },
         commitKey,
@@ -167,14 +188,20 @@ export class ImportStagingService {
 
   private validateFile(
     file: UploadedCsvFile | undefined,
+    sourceType: 'CSV' | 'XLSX',
   ): asserts file is UploadedCsvFile {
-    if (!file) throw new BadRequestException('A CSV file is required.');
-    if (!file.originalname.toLowerCase().endsWith('.csv')) {
-      throw new BadRequestException('Only .csv files are accepted for now.');
-    }
-    if (file.size <= 0 || file.size > this.maxFileBytes) {
+    if (!file) throw new BadRequestException('A file is required.');
+    if (
+      file.originalname.length > 260 ||
+      !file.originalname.toLowerCase().endsWith(`.${sourceType.toLowerCase()}`)
+    ) {
       throw new BadRequestException(
-        `CSV size must be between 1 byte and ${this.maxFileBytes} bytes.`,
+        `Select a .${sourceType.toLowerCase()} file with a filename under 261 characters.`,
+      );
+    }
+    if (file.buffer.length <= 0 || file.buffer.length > this.maxFileBytes) {
+      throw new BadRequestException(
+        `File size must be between 1 byte and ${this.maxFileBytes} bytes.`,
       );
     }
   }
@@ -210,6 +237,7 @@ export class ImportStagingService {
           currency: true,
           availability: true,
           stockQuantity: true,
+          updatedAt: true,
           product: { select: { id: true, name: true, barcode: true } },
         },
       }),
@@ -229,6 +257,7 @@ export class ImportStagingService {
         currency: true,
         availability: true,
         stockQuantity: true,
+        updatedAt: true,
         product: { select: { id: true, name: true, barcode: true } },
       },
     });
@@ -281,6 +310,7 @@ export class ImportStagingService {
           action,
           currentPrice: matched.offer?.price.toString() ?? null,
           currentCurrency: matched.offer?.currency ?? null,
+          currentUpdatedAt: matched.offer?.updatedAt.toISOString() ?? null,
         },
         errors: [...new Set(errors)],
         warnings: [...new Set(warnings)],
@@ -303,7 +333,11 @@ export class ImportStagingService {
     method: MatchMethod;
   } {
     if (skuOffer) {
-      if (barcodeProduct && barcodeProduct.id !== skuOffer.productId) {
+      if (
+        (barcodeProduct && barcodeProduct.id !== skuOffer.productId) ||
+        (data.barcode &&
+          data.barcode !== normalizeIdentifier(skuOffer.product.barcode))
+      ) {
         errors.push('Merchant SKU and barcode point to different products.');
       }
       return {

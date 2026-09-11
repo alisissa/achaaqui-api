@@ -1,0 +1,98 @@
+{
+  "apiVersion": "serving.knative.dev/v1",
+  "kind": "Service",
+  "metadata": {
+    "name": "achaaqui-api",
+    "namespace": "361472566212",
+    "labels": {
+      "cloud.googleapis.com/location": "us-east4"
+    },
+    "annotations": {
+      "run.googleapis.com/description": "AchaAqui API - private first-deployment candidate",
+      "run.googleapis.com/ingress": "all",
+      "run.googleapis.com/invoker-iam-disabled": "false",
+      "run.googleapis.com/minScale": "0",
+      "run.googleapis.com/maxScale": "1"
+    }
+  },
+  "spec": {
+    "template": {
+      "metadata": {
+        "annotations": {
+          "autoscaling.knative.dev/minScale": "0",
+          "autoscaling.knative.dev/maxScale": "1",
+          "run.googleapis.com/cpu-throttling": "true",
+          "run.googleapis.com/startup-cpu-boost": "false"
+        }
+      },
+      "spec": {
+        "containerConcurrency": 4,
+        "timeoutSeconds": 60,
+        "serviceAccountName": "achaaqui-api@achaaqui-web.iam.gserviceaccount.com",
+        "containers": [
+          {
+            "name": "api",
+            "image": "us-east4-docker.pkg.dev/achaaqui-web/achaaqui/api@sha256:__IMAGE_SHA256__",
+            "ports": [{ "name": "http1", "containerPort": 8080 }],
+            "resources": { "limits": { "cpu": "1", "memory": "512Mi" } },
+            "env": [
+              { "name": "NODE_ENV", "value": "production" },
+              { "name": "SWAGGER_ENABLED", "value": "false" },
+              { "name": "TRUST_PROXY_HOPS", "value": "0" },
+              {
+                "name": "CORS_ORIGINS",
+                "value": "https://achaaqui.com,https://www.achaaqui.com"
+              },
+              { "name": "DATABASE_POOL_MAX", "value": "5" },
+              { "name": "DATABASE_CONNECTION_TIMEOUT_MS", "value": "10000" },
+              { "name": "DATABASE_IDLE_TIMEOUT_MS", "value": "10000" },
+              { "name": "IMPORT_MAX_ROWS", "value": "500" },
+              { "name": "IMPORT_MAX_FILE_BYTES", "value": "2097152" },
+              { "name": "IMPORT_SUPPORTED_CURRENCIES", "value": "BRL,USD,PYG" },
+              {
+                "name": "DATABASE_URL",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "achaaqui-api-database-url",
+                    "key": "__DATABASE_SECRET_VERSION__"
+                  }
+                }
+              },
+              {
+                "name": "ADMIN_API_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "achaaqui-api-admin-key",
+                    "key": "__ADMIN_SECRET_VERSION__"
+                  }
+                }
+              },
+              {
+                "name": "ANALYTICS_HASH_KEY",
+                "valueFrom": {
+                  "secretKeyRef": {
+                    "name": "achaaqui-api-analytics-key",
+                    "key": "__ANALYTICS_SECRET_VERSION__"
+                  }
+                }
+              }
+            ],
+            "startupProbe": {
+              "httpGet": { "path": "/v1/readiness", "port": 8080 },
+              "periodSeconds": 10,
+              "timeoutSeconds": 5,
+              "failureThreshold": 12
+            },
+            "livenessProbe": {
+              "httpGet": { "path": "/v1/health", "port": 8080 },
+              "periodSeconds": 30,
+              "timeoutSeconds": 5,
+              "failureThreshold": 3
+            }
+          }
+        ]
+      }
+    },
+    "traffic": [{ "latestRevision": true, "percent": 100 }]
+  }
+}

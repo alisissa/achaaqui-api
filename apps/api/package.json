@@ -33,12 +33,14 @@
     "@prisma/client": "7.10.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.2",
-    "csv-parse": "^6.1.0",
+    "csv-parse": "7.0.2",
     "dotenv": "^17.2.2",
+    "exceljs": "4.4.0",
     "helmet": "^8.1.0",
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "yauzl": "3.4.0"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",
@@ -47,6 +49,7 @@
     "@types/express": "^5.0.3",
     "@types/node": "^22.18.3",
     "@types/pg": "^8.15.5",
+    "@types/yauzl": "2.10.3",
     "eslint": "10.0.0",
     "prettier": "^3.6.2",
     "prisma": "7.10.0",

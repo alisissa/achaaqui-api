@@ -14,6 +14,7 @@ export interface StoredNormalizedRow extends NormalizedImportRow {
   action: ImportAction;
   currentPrice: string | null;
   currentCurrency: string | null;
+  currentUpdatedAt: string | null;
 }
 
 export interface ImportSummary {
@@ -75,6 +76,8 @@ export function storedNormalizedRow(value: unknown): StoredNormalizedRow {
       typeof row.currentPrice === 'string' ? row.currentPrice : null,
     currentCurrency:
       typeof row.currentCurrency === 'string' ? row.currentCurrency : null,
+    currentUpdatedAt:
+      typeof row.currentUpdatedAt === 'string' ? row.currentUpdatedAt : null,
   };
 }
 

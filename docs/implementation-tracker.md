@@ -1,6 +1,6 @@
 # Implementation tracker
 
-Last updated: 2026-09-05
+Last updated: 2026-09-06
 
 ## Phase 0 — audit and decisions
 
@@ -36,7 +36,8 @@ Last updated: 2026-09-05
 - [x] Add customer review schema, public rating aggregates, and admin moderation.
 - [x] Add privacy-minimized search events, merchant-product hits, and admin reporting.
 - [ ] Replace temporary credentials with Firebase Authentication and explicit administrator/merchant roles.
-- [ ] Implement merchant-scoped CRUD and manual offer updates with price history.
+- [x] Administrator-operated, merchant-scoped offer creation/edit/removal/restore with truthful manual price history and stale-edit protection.
+- [x] Atomic creation of a shared catalog product and its first merchant offer.
 - [ ] Add a merchant onboarding/request policy after the administrator workflow is proven.
 
 ## Phase 3 — CSV/XLSX import (started)
@@ -47,7 +48,9 @@ Last updated: 2026-09-05
 - [x] Database-backed import tests for concurrent imports, commit/cancel races, stale previews, inactive offers, currency changes, idempotency, and conflicting matches.
 - [x] Refresh offer freshness for verified unchanged rows without creating false price history.
 - [ ] Reusable merchant-specific column mappings and mapping snapshots.
-- [ ] XLSX input feeding the same shared pipeline.
+- [x] XLSX input feeding the same shared pipeline, with bounded ZIP expansion and plain-cell validation.
+- [x] Downloadable blank CSV/XLSX templates and current-offer templates for testing and bulk price maintenance.
+- [x] Shared transaction locks and version snapshots across manual edits and imports, including inventory-only changes/removal.
 - [ ] Merchant-authenticated, merchant-scoped self-service imports.
 
 ## Explicitly deferred
@@ -71,3 +74,15 @@ Production deployment, cloud resources, EAS publishing, account changes, Google 
 - Rehearse the production migration, backup, and restore procedure against the selected managed PostgreSQL provider.
 - Configure production secrets, budget alerts, region, retention scheduling, error reporting, and deployment access deliberately.
 - Generate or validate mobile contracts against OpenAPI in CI and measure search indexing requirements with realistic data.
+
+## Merchant next steps
+
+1. Firebase sign-in, invitations, account recovery, administrator/merchant roles, merchant ownership checks on every read/write, and real actor IDs. Current ID-scoping tests do not replace authenticated cross-tenant tests.
+2. Merchant profile editing/deactivation: address, contact details, website, logo, and onboarding approval.
+3. Product images/descriptions and a platform-admin correction/duplicate-review flow for the shared catalog.
+4. Saved merchant column mappings and downloadable row-error reports after testing real merchant spreadsheets.
+5. Price freshness reminders and a complete operator activity trail, including stock changes and removals.
+
+Google Sheets, OCR/PDF/WhatsApp, automatic fuzzy matching, and large asynchronous
+imports remain later features. See [merchant workflows](merchant-workflows.md)
+and the planning-only [GCP migration plan](gcp-migration-plan.md).

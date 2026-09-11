@@ -14,7 +14,20 @@ export class PrismaService
       throw new Error('DATABASE_URL is not configured.');
     }
 
-    super({ adapter: new PrismaPg({ connectionString }) });
+    super({
+      adapter: new PrismaPg({
+        connectionString,
+        max: configService.get<number>('DATABASE_POOL_MAX', 10),
+        connectionTimeoutMillis: configService.get<number>(
+          'DATABASE_CONNECTION_TIMEOUT_MS',
+          10_000,
+        ),
+        idleTimeoutMillis: configService.get<number>(
+          'DATABASE_IDLE_TIMEOUT_MS',
+          10_000,
+        ),
+      }),
+    });
   }
 
   async onModuleInit(): Promise<void> {
