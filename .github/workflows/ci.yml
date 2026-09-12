@@ -37,6 +37,8 @@ jobs:
           cache: npm
       - run: npm install --global npm@11.19.1
       - run: npm ci
+      # Prisma 7 migrate deploy does not generate the types used by typed lint.
+      - run: npm run db:generate
       - run: npm run db:migrate:deploy
       - run: npm run lint
       - run: npm run typecheck
