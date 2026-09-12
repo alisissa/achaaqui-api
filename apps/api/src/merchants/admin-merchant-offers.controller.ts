@@ -16,6 +16,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from '../admin-auth/admin-api-key.guard';
+import { ActorId } from '../admin-auth/admin-actor';
 import {
   AdminOfferDto,
   AdminOfferListDto,
@@ -48,10 +49,11 @@ export class AdminMerchantOffersController {
   @Post()
   @ApiCreatedResponse({ type: AdminOfferDto })
   async create(
+    @ActorId() actorId: string,
     @Param() params: MerchantIdParamDto,
     @Body() input: CreateMerchantOfferDto,
   ): Promise<AdminOfferDto> {
-    return await this.offers.create(params.merchantId, input);
+    return await this.offers.create(params.merchantId, input, actorId);
   }
 
   @Get(':offerId')
@@ -63,10 +65,16 @@ export class AdminMerchantOffersController {
   @Patch(':offerId')
   @ApiOkResponse({ type: AdminOfferDto })
   async update(
+    @ActorId() actorId: string,
     @Param() params: MerchantOfferParamDto,
     @Body() input: UpdateMerchantOfferDto,
   ): Promise<AdminOfferDto> {
-    return await this.offers.update(params.merchantId, params.offerId, input);
+    return await this.offers.update(
+      params.merchantId,
+      params.offerId,
+      input,
+      actorId,
+    );
   }
 
   @Delete(':offerId')

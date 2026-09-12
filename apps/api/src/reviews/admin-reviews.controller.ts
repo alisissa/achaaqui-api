@@ -15,6 +15,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from '../admin-auth/admin-api-key.guard';
+import { ActorId } from '../admin-auth/admin-actor';
 import { IdParamDto } from '../common/dto/id-param.dto';
 import {
   AdminReviewItemDto,
@@ -51,9 +52,10 @@ export class AdminReviewsController {
   @ApiOkResponse({ type: AdminReviewItemDto })
   @ApiNotFoundResponse({ description: 'Review not found.' })
   async moderate(
+    @ActorId() actorId: string,
     @Param() params: IdParamDto,
     @Body() input: UpdateReviewStatusDto,
   ): Promise<AdminReviewItemDto> {
-    return await this.reviewsService.moderate(params.id, input);
+    return await this.reviewsService.moderate(params.id, input, actorId);
   }
 }

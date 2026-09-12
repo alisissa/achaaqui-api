@@ -1,5 +1,10 @@
 # First Cloud Run API deployment — review candidate
 
+Historical private-first preparation. The owner subsequently approved the public
+API and existing Swagger on 11 September 2026. See the
+[current public API release](public-api-2026-09-11.md). The private template and
+its offline tests are not a current-state export and must not be reapplied blindly.
+
 Prepared 11 September 2026. This is local configuration, not deployment approval.
 No GCP resources, secrets, IAM bindings, images in Artifact Registry, or DNS records
 are created by these files. The admin, mobile, and Firebase homepage are unchanged.

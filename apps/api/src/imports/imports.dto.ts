@@ -17,6 +17,10 @@ export class UploadCsvDto {
 
 export class ImportTemplateQueryDto {
   @IsOptional()
+  @IsIn(['en', 'pt-BR'])
+  locale?: 'en' | 'pt-BR';
+
+  @IsOptional()
   @IsIn(['csv', 'xlsx'])
   format: 'csv' | 'xlsx' = 'xlsx';
 

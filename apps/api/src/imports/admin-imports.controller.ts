@@ -21,6 +21,7 @@ import {
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
 import { AdminApiKeyGuard } from '../admin-auth/admin-api-key.guard';
+import { ActorId } from '../admin-auth/admin-actor';
 import { IdParamDto } from '../common/dto/id-param.dto';
 import { ImportCommitService } from './import-commit.service';
 import {
@@ -68,10 +69,11 @@ export class AdminImportsController {
   @ApiConsumes('multipart/form-data')
   @ApiCreatedResponse({ type: AdminImportDetailDto })
   async uploadXlsx(
+    @ActorId() actorId: string,
     @Body() input: UploadCsvDto,
     @UploadedFile() file: UploadedCsvFile | undefined,
   ): Promise<AdminImportDetailDto> {
-    const id = await this.stagingService.stageXlsx(input, file);
+    const id = await this.stagingService.stageXlsx(input, file, actorId);
     return await this.importsService.detail(id);
   }
 
@@ -80,10 +82,11 @@ export class AdminImportsController {
   @ApiConsumes('multipart/form-data')
   @ApiCreatedResponse({ type: AdminImportDetailDto })
   async uploadCsv(
+    @ActorId() actorId: string,
     @Body() input: UploadCsvDto,
     @UploadedFile() file: UploadedCsvFile | undefined,
   ): Promise<AdminImportDetailDto> {
-    const id = await this.stagingService.stageCsv(input, file);
+    const id = await this.stagingService.stageCsv(input, file, actorId);
     return await this.importsService.detail(id);
   }
 
@@ -105,10 +108,11 @@ export class AdminImportsController {
   @HttpCode(200)
   @ApiOkResponse({ type: AdminImportDetailDto })
   async commit(
+    @ActorId() actorId: string,
     @Param() params: IdParamDto,
     @Body() input: CommitImportDto,
   ): Promise<AdminImportDetailDto> {
-    await this.commitService.commit(params.id, input);
+    await this.commitService.commit(params.id, input, actorId);
     return await this.importsService.detail(params.id);
   }
 

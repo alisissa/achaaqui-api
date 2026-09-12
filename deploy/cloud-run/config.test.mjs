@@ -82,7 +82,6 @@ test("requires an immutable image and explicit secret-version review before use"
   );
   const expected = {
     DATABASE_URL: ["achaaqui-api-database-url", "__DATABASE_SECRET_VERSION__"],
-    ADMIN_API_KEY: ["achaaqui-api-admin-key", "__ADMIN_SECRET_VERSION__"],
     ANALYTICS_HASH_KEY: [
       "achaaqui-api-analytics-key",
       "__ANALYTICS_SECRET_VERSION__",
@@ -94,6 +93,9 @@ test("requires an immutable image and explicit secret-version review before use"
   }
   assert.doesNotMatch(source, /postgres(?:ql)?:\/\/|:latest|"key":\s*"latest"/);
   assert.equal(env.DIRECT_URL, undefined);
+  assert.equal(env.ADMIN_API_KEY, undefined);
+  assert.equal(env.ADMIN_AUTH_MODE.value, "firebase");
+  assert.equal(env.FIREBASE_PROJECT_ID.value, "achaaqui-web");
   assert.equal(container.command, undefined);
   assert.equal(container.args, undefined);
 });

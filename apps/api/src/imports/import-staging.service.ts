@@ -97,21 +97,24 @@ export class ImportStagingService {
   async stageCsv(
     input: UploadCsvDto,
     file: UploadedCsvFile | undefined,
+    actorId = 'local-admin',
   ): Promise<string> {
-    return await this.stage(input, file, ImportSource.CSV);
+    return await this.stage(input, file, ImportSource.CSV, actorId);
   }
 
   async stageXlsx(
     input: UploadCsvDto,
     file: UploadedCsvFile | undefined,
+    actorId = 'local-admin',
   ): Promise<string> {
-    return await this.stage(input, file, ImportSource.XLSX);
+    return await this.stage(input, file, ImportSource.XLSX, actorId);
   }
 
   private async stage(
     input: UploadCsvDto,
     file: UploadedCsvFile | undefined,
     sourceType: 'CSV' | 'XLSX',
+    actorId: string,
   ): Promise<string> {
     this.validateFile(file, sourceType);
     const merchant = await this.prisma.merchant.findUnique({
@@ -154,7 +157,7 @@ export class ImportStagingService {
         },
         summary: { ...summary },
         commitKey,
-        actorId: 'admin-api-key',
+        actorId,
         previewedAt: new Date(),
         rows: {
           create: stagedRows.map((row) => ({
@@ -273,7 +276,7 @@ export class ImportStagingService {
 
     return normalized.map(({ source, result }) => {
       const errors = [...result.errors];
-      const warnings = [...result.warnings];
+      const warnings = [...(source.warnings ?? []), ...result.warnings];
       if (
         result.data.merchantSku &&
         duplicateSkus.has(result.data.merchantSku)

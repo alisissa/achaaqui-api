@@ -46,3 +46,4 @@ jobs:
       - run: npm audit
       - run: npm run test:integration
       - run: npm run build
+      - run: node --test deploy/cloud-run/startup.test.mjs

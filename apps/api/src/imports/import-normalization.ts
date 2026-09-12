@@ -67,6 +67,8 @@ const CURRENCY_ALIASES: Record<string, string> = {
 };
 
 const IN_STOCK_VALUES = new Set([
+  'true',
+  'verdadeiro',
   '1',
   'available',
   'disponivel',
@@ -77,6 +79,8 @@ const IN_STOCK_VALUES = new Set([
   'yes',
 ]);
 const OUT_OF_STOCK_VALUES = new Set([
+  'false',
+  'falso',
   '0',
   'indisponivel',
   'indisponível',

@@ -10,6 +10,8 @@ The admin Imports page downloads blank CSV or XLSX files. The merchant catalog
 also downloads that merchant's current active offers, suitable for editing and
 re-uploading. Blank templates contain headers only, not pretend inventory. Excel
 templates include a separate Instructions sheet and text-formatted columns.
+The optional template query `locale=pt-BR` translates the Excel instructions;
+canonical headers and worksheet names remain unchanged. The default is English.
 Current-offer downloads include at most 500 offers; larger catalogs receive an
 explicit error rather than a silently truncated export. Use smaller batches in
 the blank template until paginated exports are implemented.
@@ -40,9 +42,15 @@ protection and then open untrusted CSV values as spreadsheet formulas.
 File limits: 2 MB, 500 data rows, and 32 columns. XLSX additionally allows at most
 10 MB of actual expanded ZIP data and 100 ZIP entries. Use one visible data
 worksheet; an optional worksheet named exactly `Instructions` is ignored.
-Numeric SKU/barcode cells, formulas, dates, hyperlinks, rich text, hidden data
-rows, merged cells, encrypted archives, macros, and embedded objects are
-rejected. `.xls`, `.xlsm`, and renamed arbitrary files are not supported.
+Numeric barcode cells, formulas, dates, hyperlinks, rich text, hidden data rows,
+merged cells, encrypted archives, macros, and embedded objects are rejected.
+Numeric SKUs are accepted only as nonnegative integers of at most 15 digits with
+`General`, `0`, or `@` formatting. Each receives a leading-zero warning requiring
+explicit acknowledgement before commit, including unchanged rows. Do not guess
+lost zeros: re-enter the original identifier as Text when necessary. Boolean
+availability cells and textual TRUE/FALSE values are supported; contradictory
+stock still blocks the row. `.numbers`, `.xls`, `.xlsm`, and renamed arbitrary
+files are not supported. In Apple Numbers, export to Excel (.xlsx) or CSV first.
 
 Matching checks the merchant's existing SKU first, then an exact catalog
 barcode. A supplied conflicting barcode blocks the row. Names never silently

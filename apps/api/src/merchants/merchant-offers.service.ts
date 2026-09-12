@@ -135,6 +135,7 @@ export class MerchantOffersService {
   async create(
     merchantId: string,
     input: CreateMerchantOfferDto,
+    actorId = 'local-admin',
   ): Promise<AdminOfferDto> {
     if (Boolean(input.productId) === Boolean(input.newProduct))
       throw new BadRequestException(
@@ -182,7 +183,7 @@ export class MerchantOffersService {
             newPrice: created.price,
             currency: created.currency,
             source: 'MANUAL',
-            actorId: 'admin-api-key',
+            actorId,
           },
         });
         return created;
@@ -197,6 +198,7 @@ export class MerchantOffersService {
     merchantId: string,
     offerId: string,
     input: UpdateMerchantOfferDto,
+    actorId = 'local-admin',
   ): Promise<AdminOfferDto> {
     const values = this.validateValues(input);
     try {
@@ -252,7 +254,7 @@ export class MerchantOffersService {
               newPrice: values.price,
               currency: values.currency,
               source: 'MANUAL',
-              actorId: 'admin-api-key',
+              actorId,
               changedAt: now,
             },
           });

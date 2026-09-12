@@ -5,7 +5,7 @@ This repository is the server-side workspace for the catalog product.
 - `apps/api` — NestJS REST API and Prisma/PostgreSQL data model.
 - `docs` — architecture decisions and the implementation tracker.
 
-The customer app lives in `achaaqui-mobile`, and the operational web app lives in the user-provided `achaaqui-admin` repository. The product name is AchaAqui. The selected backend target is Cloud Run in `us-east4` with Neon PostgreSQL; Firebase merchant authentication remains to be implemented. The API is not deployed by this repository's CI.
+The customer app lives in `achaaqui-mobile`, and the operational web app lives in the user-provided `achaaqui-admin` repository. The product name is AchaAqui. Production runs on Cloud Run in `us-east4` with Neon PostgreSQL. Firebase platform-admin authentication is implemented; merchant self-service remains disabled. The API is not deployed by this repository's CI.
 
 ## Requirements
 
@@ -27,7 +27,18 @@ npm run db:seed
 npm run dev:api
 ```
 
-The API is served at `http://localhost:3001/v1`. Swagger UI is at `http://localhost:3001/v1/docs`, and the OpenAPI JSON document is at `http://localhost:3001/v1/openapi.json`. Swagger defaults off outside development. Admin endpoints require the server-side bearer key configured as `ADMIN_API_KEY`.
+The API is served at `http://localhost:3001/v1`. Swagger UI is at `http://localhost:3001/v1/docs`, and the OpenAPI JSON document is at `http://localhost:3001/v1/openapi.json`. Swagger defaults off outside development. Local shared-key mode requires the server-side bearer key configured as `ADMIN_API_KEY`; production uses Firebase authentication instead.
+
+The owner-approved cloud API is now public, with Swagger explicitly enabled:
+[API documentation](https://api.achaaqui.com/v1/docs/). Its root redirects to
+`/v1/docs/`; API routes retain `/v1`. Production administrative operations require
+a Firebase Google ID token (`Authorization: Bearer <token>`) or an admin-issued
+Firebase session (`Authorization: Session <cookie>`). Both require the
+`role: platform_admin` claim and a current, enabled, verified Google user with
+that role. Shared API keys and merchant-role tokens are rejected in production.
+Actor IDs are derived from the verified Firebase UID, never supplied by clients.
+See the [current authentication/deployment handoff](../achaaqui-admin/docs/firebase-admin-release.md)
+and the historical [public API release](docs/public-api-2026-09-11.md).
 
 Use the declared npm version: older npm 11 workspace resolution can silently
 retain vulnerable transitive packages despite root overrides. See the
@@ -50,8 +61,13 @@ changes create truthful price history; unchanged rows only refresh the offer
 source timestamp and never reactivate an offer. CSV and XLSX share this pipeline,
 with limits of 500 rows/2 MB. Protected downloads provide blank CSV/XLSX templates
 or a merchant's current active offers for editing and re-uploading. Excel inputs
-are bounded before parsing and reject formulas, numeric identifiers, hidden rows,
-merged cells, macros, and extra data sheets. Saved custom mappings remain deferred.
+are bounded before parsing and reject formulas, numeric barcodes, unsafe numeric
+SKUs, hidden rows, merged cells, macros, and extra data sheets. Nonnegative integer
+SKUs of at most 15 digits with plain number formatting are accepted with an
+explicit leading-zero warning that must be acknowledged, even for unchanged
+rows. Keep identifiers as Text whenever possible. Boolean availability values
+are accepted; stock contradictions still fail validation. Native Apple Numbers
+files must be exported to Excel (.xlsx) or CSV. Saved custom mappings remain deferred.
 
 ## Individual merchant offers
 

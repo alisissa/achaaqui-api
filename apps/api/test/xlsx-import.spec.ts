@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { Workbook } from 'exceljs';
+import { Readable } from 'node:stream';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { PrismaService } from '../src/database/prisma.service';
 import { parseCsv } from '../src/imports/csv-parser';
@@ -60,6 +61,57 @@ describe('CSV and XLSX import files', () => {
         }),
       ),
     ).rejects.toThrow('format barcode as Text');
+  });
+  it('preserves safe numeric SKUs as digits with an explicit row warning', async () => {
+    for (const value of [0, 123, 1.3141516e7, 999999999999999]) {
+      const rows = await parseXlsx(
+        await workbookBytes((book) => {
+          book.worksheets[0].getCell('A2').value = value;
+        }),
+      );
+      expect(rows[0].rawData.merchantSku).toBe(String(value));
+      expect(rows[0].warnings).toEqual([
+        `Cell A2: numeric merchantSku was converted to "${value}". Verify the original SKU: leading zeros may have been lost.`,
+      ]);
+    }
+  });
+  it('rejects unsafe, fractional, negative and custom-formatted numeric SKUs', async () => {
+    for (const [value, numFmt] of [
+      [1e15, 'General'],
+      [1.5, 'General'],
+      [-1, 'General'],
+      [123, '00000'],
+      [123, '0.00'],
+    ] as const) {
+      await expect(
+        parseXlsx(
+          await workbookBytes((book) => {
+            const cell = book.worksheets[0].getCell('A2');
+            cell.value = value;
+            cell.numFmt = numFmt;
+          }),
+        ),
+      ).rejects.toThrow('re-enter merchantSku as Text');
+    }
+  });
+  it('accepts boolean availability but not booleans in identifiers or prices', async () => {
+    for (const value of [true, false]) {
+      const rows = await parseXlsx(
+        await workbookBytes((book) => {
+          book.worksheets[0].getCell('I2').value = value;
+        }),
+      );
+      expect(rows[0].rawData.availability).toBe(value ? '1' : '0');
+    }
+    for (const address of ['A2', 'E2', 'F2']) {
+      await expect(
+        parseXlsx(
+          await workbookBytes((book) => {
+            book.worksheets[0].getCell(address).value = true;
+          }),
+        ),
+      ).rejects.toThrow('plain text or numbers');
+    }
   });
   it('should reject formulas even if Excel cached their result', async () => {
     await expect(
@@ -165,6 +217,15 @@ describe('downloadable import templates', () => {
     expect(parseCsv(csv.buffer)).toEqual([]);
     expect(await parseXlsx(xlsx.buffer)).toEqual([]);
     expect(xlsx.contentType).toContain('spreadsheetml');
+  });
+  it('localizes workbook instructions without changing canonical headers or identifier formats', async () => {
+    const result = await templates.download({format: 'xlsx', locale: 'pt-BR'});
+    expect(await parseXlsx(result.buffer)).toEqual([]);
+    const workbook = new Workbook();
+    await workbook.xlsx.read(Readable.from(result.buffer));
+    expect(workbook.getWorksheet('Instructions')?.getCell('B2').value).toContain('zeros à esquerda');
+    expect(workbook.getWorksheet('Catalog')?.getCell('A1').value).toBe('merchantSku');
+    expect(workbook.getWorksheet('Catalog')?.getColumn(1).numFmt).toBe('@');
   });
   it('should neutralize CSV formula prefixes and escape quoted text', () => {
     expect(csvCell('=HYPERLINK("x")')).toBe('"\'=HYPERLINK(""x"")"');
