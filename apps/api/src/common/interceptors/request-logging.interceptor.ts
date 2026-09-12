@@ -5,9 +5,10 @@ import {
   Logger,
   NestInterceptor,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import type { Observable } from 'rxjs';
 import { finalize } from 'rxjs/operators';
+import type { AdminRequest } from '../../admin-auth/admin-actor';
 
 @Injectable()
 export class RequestLoggingInterceptor implements NestInterceptor {
@@ -15,7 +16,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const startedAt = Date.now();
-    const request = context.switchToHttp().getRequest<Request>();
+    const request = context.switchToHttp().getRequest<AdminRequest>();
     const response = context.switchToHttp().getResponse<Response>();
 
     return next.handle().pipe(
@@ -26,6 +27,7 @@ export class RequestLoggingInterceptor implements NestInterceptor {
             method: request.method,
             path: request.path,
             status: response.statusCode,
+            ...(request.adminActor ? { actorId: request.adminActor.id } : {}),
             durationMs: Date.now() - startedAt,
           }),
         );

@@ -45,7 +45,11 @@ interface CurrentOffer {
 export class ImportCommitService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async commit(id: string, input: CommitImportDto): Promise<void> {
+  async commit(
+    id: string,
+    input: CommitImportDto,
+    actorId = 'local-admin',
+  ): Promise<void> {
     const stagedImport = await this.prisma.import.findUnique({
       where: { id },
       select: {
@@ -84,12 +88,12 @@ export class ImportCommitService {
       const normalized = storedNormalizedRow(row.normalizedData);
       return { row, normalized };
     });
-    const actionableWarnings = rows.filter(
-      ({ row, normalized }) =>
-        row.status === ImportRowStatus.WARNING &&
-        normalized.action !== IMPORT_ACTIONS.UNCHANGED,
+    // Even an unchanged offer can contain an uncertain numeric SKU. Refreshing
+    // freshness is a live write and must not bypass warning acknowledgement.
+    const warningRows = rows.filter(
+      ({ row }) => row.status === ImportRowStatus.WARNING,
     );
-    if (actionableWarnings.length > 0 && !input.confirmWarnings) {
+    if (warningRows.length > 0 && !input.confirmWarnings) {
       throw new ConflictException(
         'This import has warnings. Confirm warnings before committing.',
       );
@@ -241,7 +245,7 @@ export class ImportCommitService {
                 : PriceChangeSource.CSV,
             importId: id,
             importRowId: row.id,
-            actorId: 'admin-api-key',
+            actorId,
             changedAt: committedAt,
           };
         });

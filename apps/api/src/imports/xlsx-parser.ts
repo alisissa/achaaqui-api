@@ -5,7 +5,7 @@ import type { ParsedCsvRow } from './csv-parser';
 import { mapImportHeaders, MAX_IMPORT_ROWS } from './import-file';
 import { validateXlsxArchive } from './xlsx-archive';
 
-function cellText(cell: Cell, field?: string): string {
+function cellText(cell: Cell, field?: string, warnings: string[] = []): string {
   const value = cell.value;
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') {
@@ -16,12 +16,33 @@ function cellText(cell: Cell, field?: string): string {
     return value.trim();
   }
   if (typeof value === 'number' && Number.isFinite(value)) {
-    if (field === 'barcode' || field === 'merchantSku') {
+    if (field === 'merchantSku') {
+      // Excel preserves only 15 significant decimal digits. Never guess digits
+      // or reconstruct an identifier from a potentially lossy display format.
+      if (
+        !Number.isSafeInteger(value) ||
+        value < 0 ||
+        value >= 1e15 ||
+        !['General', '0', '@'].includes(cell.numFmt || 'General')
+      ) {
+        throw new BadRequestException(
+          `Cell ${cell.address}: re-enter merchantSku as Text from the original identifier; numeric precision or formatting may have changed its digits.`,
+        );
+      }
+      warnings.push(
+        `Cell ${cell.address}: numeric merchantSku was converted to "${value}". Verify the original SKU: leading zeros may have been lost.`,
+      );
+      return String(value);
+    }
+    if (field === 'barcode') {
       throw new BadRequestException(
         `Cell ${cell.address}: format ${field} as Text to preserve leading zeros.`,
       );
     }
     return String(value);
+  }
+  if (typeof value === 'boolean' && field === 'availability') {
+    return value ? '1' : '0';
   }
   throw new BadRequestException(
     `Cell ${cell.address}: use plain text or numbers; formulas, dates, and linked cells are not accepted.`,
@@ -69,8 +90,9 @@ export async function parseXlsx(
       throw new BadRequestException(
         `Row ${number} is hidden. Unhide it before importing.`,
       );
+    const warnings: string[] = [];
     const values = headers.map((field, i) =>
-      cellText(row.getCell(i + 1), field),
+      cellText(row.getCell(i + 1), field, warnings),
     );
     if (!values.some(Boolean)) return;
     rows.push({
@@ -78,6 +100,7 @@ export async function parseXlsx(
       rawData: Object.fromEntries(
         headers.map((field, i) => [field, values[i] ?? '']),
       ),
+      ...(warnings.length ? { warnings } : {}),
     });
   });
   return rows;

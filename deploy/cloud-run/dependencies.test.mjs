@@ -18,6 +18,7 @@ const fixes = [
   ["@prisma/config", "deepmerge-ts", "8.0.2"],
   ["prisma", "mysql2", "3.24.4"],
   ["exceljs", "uuid", "11.1.1"],
+  ["gaxios", "uuid", "11.1.1"],
 ];
 
 for (const [parent, child, expected] of fixes) {
@@ -55,7 +56,11 @@ for (const [parent, child, expected] of fixes) {
         key === `node_modules/${child}`,
     );
     assert.ok(copies.length > 0);
-    for (const [, pkg] of copies) assert.equal(pkg.version, expected);
+    for (const [, pkg] of copies) {
+      // Firebase also uses newer, already-fixed UUID releases through gaxios 7.
+      if (child === "uuid") assert.ok(Number(pkg.version.split(".")[0]) > 11 || pkg.version === expected);
+      else assert.equal(pkg.version, expected);
+    }
   });
 }
 
@@ -79,4 +84,10 @@ test("ExcelJS can still load the CommonJS UUID v4 API", () => {
   const id = v4();
   assert.ok(validate(id));
   assert.equal(version(id), 4);
+});
+
+test("Firebase's gaxios 6 can still load the patched CommonJS UUID v4 API", () => {
+  const fromGaxios = createRequire(require.resolve("gaxios"));
+  const { v4, validate } = fromGaxios("uuid");
+  assert.ok(validate(v4()));
 });

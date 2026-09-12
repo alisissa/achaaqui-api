@@ -11,6 +11,8 @@ interface Environment {
   FRESHNESS_AGING_HOURS: number;
   FRESHNESS_STALE_HOURS: number;
   ADMIN_API_KEY: string;
+  ADMIN_AUTH_MODE: 'local-key' | 'firebase';
+  FIREBASE_PROJECT_ID: string;
   ANALYTICS_HASH_KEY: string;
   ANALYTICS_RETENTION_DAYS: number;
   IMPORT_SUPPORTED_CURRENCIES: string;
@@ -131,6 +133,36 @@ export function validateEnvironment(
     );
   }
 
+  const authMode =
+    rawEnvironment.ADMIN_AUTH_MODE ??
+    (nodeEnvironment === 'production' ? 'firebase' : 'local-key');
+  if (authMode !== 'firebase' && authMode !== 'local-key') {
+    throw new Error('ADMIN_AUTH_MODE must be firebase or local-key.');
+  }
+  if (nodeEnvironment === 'production' && authMode !== 'firebase') {
+    throw new Error(
+      'Production administrator access requires Firebase authentication.',
+    );
+  }
+  const firebaseProjectId = rawEnvironment.FIREBASE_PROJECT_ID ?? '';
+  if (
+    typeof firebaseProjectId !== 'string' ||
+    (authMode === 'firebase' &&
+      !/^[a-z][a-z0-9-]{4,28}[a-z0-9]$/.test(firebaseProjectId))
+  ) {
+    throw new Error(
+      'FIREBASE_PROJECT_ID is required for Firebase authentication.',
+    );
+  }
+  if (
+    nodeEnvironment === 'production' &&
+    rawEnvironment.FIREBASE_AUTH_EMULATOR_HOST
+  ) {
+    throw new Error(
+      'The Firebase Auth emulator must not be used in production.',
+    );
+  }
+
   return {
     NODE_ENV: nodeEnvironment as Environment['NODE_ENV'],
     PORT: positiveInteger(rawEnvironment.PORT, 3000, 'PORT'),
@@ -162,7 +194,12 @@ export function validateEnvironment(
     ),
     FRESHNESS_AGING_HOURS: agingHours,
     FRESHNESS_STALE_HOURS: staleHours,
-    ADMIN_API_KEY: secretValue(rawEnvironment.ADMIN_API_KEY, 'ADMIN_API_KEY'),
+    ADMIN_AUTH_MODE: authMode,
+    FIREBASE_PROJECT_ID: firebaseProjectId,
+    ADMIN_API_KEY:
+      authMode === 'local-key'
+        ? secretValue(rawEnvironment.ADMIN_API_KEY, 'ADMIN_API_KEY')
+        : '',
     ANALYTICS_HASH_KEY: secretValue(
       rawEnvironment.ANALYTICS_HASH_KEY,
       'ANALYTICS_HASH_KEY',

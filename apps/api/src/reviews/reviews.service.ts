@@ -246,6 +246,7 @@ export class ReviewsService {
   async moderate(
     id: string,
     input: UpdateReviewStatusDto,
+    actorId = 'local-admin',
   ): Promise<AdminReviewItemDto> {
     const existing = await this.prisma.customerReview.findUnique({
       where: { id },
@@ -261,7 +262,7 @@ export class ReviewsService {
       data: {
         status: input.status,
         moderatedAt: pending ? null : new Date(),
-        moderatedBy: pending ? null : 'admin-api-key',
+        moderatedBy: pending ? null : actorId,
       },
       select: {
         id: true,

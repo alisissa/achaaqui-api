@@ -5,6 +5,7 @@ import { mapImportHeaders, MAX_IMPORT_ROWS } from './import-file';
 export interface ParsedCsvRow {
   sourceRowNumber: number;
   rawData: Record<string, string>;
+  warnings?: string[];
 }
 
 export function parseCsv(

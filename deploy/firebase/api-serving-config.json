@@ -1,0 +1,19 @@
+{
+  "redirects": [{ "glob": "/", "location": "/v1/docs/", "statusCode": 302 }],
+  "rewrites": [
+    {
+      "glob": "**",
+      "run": { "serviceId": "achaaqui-api", "region": "us-east4" }
+    }
+  ],
+  "headers": [
+    {
+      "glob": "**",
+      "headers": {
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-Robots-Tag": "noindex, nofollow"
+      }
+    }
+  ]
+}

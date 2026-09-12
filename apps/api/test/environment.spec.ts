@@ -64,6 +64,7 @@ describe('validateEnvironment', () => {
     const environment = validateEnvironment({
       ...validEnvironment,
       NODE_ENV: 'production',
+      FIREBASE_PROJECT_ID: 'achaaqui-web',
     });
 
     expect(environment.SWAGGER_ENABLED).toBe(false);
@@ -75,6 +76,27 @@ describe('validateEnvironment', () => {
     expect(environment.DATABASE_POOL_MAX).toBe(10);
     expect(environment.DATABASE_CONNECTION_TIMEOUT_MS).toBe(10_000);
     expect(environment.DATABASE_IDLE_TIMEOUT_MS).toBe(10_000);
+  });
+
+  it('requires Firebase in production and rejects emulator or password fallback', () => {
+    const production = {
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      FIREBASE_PROJECT_ID: 'achaaqui-web',
+    };
+    expect(validateEnvironment(production).ADMIN_AUTH_MODE).toBe('firebase');
+    expect(() =>
+      validateEnvironment({ ...production, ADMIN_AUTH_MODE: 'local-key' }),
+    ).toThrow();
+    expect(() =>
+      validateEnvironment({ ...production, FIREBASE_PROJECT_ID: '' }),
+    ).toThrow();
+    expect(() =>
+      validateEnvironment({
+        ...production,
+        FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099',
+      }),
+    ).toThrow();
   });
 
   it('should transform explicit database pool settings', () => {

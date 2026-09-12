@@ -112,7 +112,11 @@ run('merchant offers and XLSX integration', () => {
     );
     merchantId = merchants[0].id;
     otherMerchantId = merchants[1].id;
-    offer = await offers.create(merchantId, createInput());
+    offer = await offers.create(
+      merchantId,
+      createInput(),
+      'firebase:creator-uid',
+    );
   });
 
   afterAll(async () => {
@@ -145,7 +149,40 @@ run('merchant offers and XLSX integration', () => {
       source: 'MANUAL',
       oldPrice: null,
       oldCurrency: null,
+      actorId: 'firebase:creator-uid',
     });
+  });
+
+  it('carries numeric SKU warnings through preview and blocks commit until explicitly acknowledged', async () => {
+    await offers.update(merchantId, offer.id, {
+      ...updateInput(),
+      merchantSku: '123',
+    });
+    const file = await templates.download({ format: 'xlsx', merchantId });
+    const book = new Workbook();
+    await book.xlsx.read(Readable.from(file.buffer));
+    const sheet = book.getWorksheet('Catalog')!;
+    sheet.getCell('A2').value = 123;
+    sheet.getCell('I2').value = true;
+    const buffer = Buffer.from(await book.xlsx.writeBuffer());
+    const upload = {
+      originalname: 'numeric-sku.xlsx',
+      mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      buffer,
+      size: buffer.length,
+    };
+    const staged = await staging.stageXlsx({ merchantId }, upload);
+    const preview = await imports.detail(staged);
+    expect(preview.summary.invalid).toBe(0);
+    expect(preview.summary.warnings).toBe(1);
+    expect(preview.rows[0].warnings.join(' ')).toContain('leading zeros');
+    await expect(
+      commit.commit(staged, { confirmWarnings: false }),
+    ).rejects.toBeInstanceOf(ConflictException);
+    expect((await imports.detail(staged)).status).toBe('READY');
+    await commit.commit(staged, { confirmWarnings: true });
+    expect((await imports.detail(staged)).status).toBe('COMMITTED');
+    expect((await offers.detail(merchantId, offer.id)).merchantSku).toBe('123');
   });
 
   it('adds an entirely new product and first offer atomically; duplicate SKU rolls everything back', async () => {
@@ -212,17 +249,23 @@ run('merchant offers and XLSX integration', () => {
         price: '200',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
-    const changed = await offers.update(merchantId, offer.id, {
-      ...updateInput(),
-      currency: 'USD',
-      price: '200',
-      confirmWarnings: true,
-    });
+    const changed = await offers.update(
+      merchantId,
+      offer.id,
+      {
+        ...updateInput(),
+        currency: 'USD',
+        price: '200',
+        confirmWarnings: true,
+      },
+      'firebase:editor-uid',
+    );
     expect(changed.price).toEqual({ amount: '200.00', currency: 'USD' });
     const history = await prisma.priceHistory.findFirstOrThrow({
       where: { merchantProductId: offer.id, oldCurrency: 'BRL' },
     });
     expect(history.currency).toBe('USD');
+    expect(history.actorId).toBe('firebase:editor-uid');
     expect(history.oldPrice?.toString()).toBe('100');
     expect(history.newPrice.toString()).toBe('200');
   });
@@ -310,8 +353,8 @@ run('merchant offers and XLSX integration', () => {
       mimetype: template.contentType,
     };
     return format === 'xlsx'
-      ? await staging.stageXlsx({ merchantId }, file)
-      : await staging.stageCsv({ merchantId }, file);
+      ? await staging.stageXlsx({ merchantId }, file, 'firebase:uploader-uid')
+      : await staging.stageCsv({ merchantId }, file, 'firebase:uploader-uid');
   }
 
   it.each(['csv', 'xlsx'] as const)(
@@ -326,13 +369,25 @@ run('merchant offers and XLSX integration', () => {
       expect((await offers.detail(merchantId, offer.id)).price.amount).toBe(
         '100.00',
       );
-      await commit.commit(id, { confirmWarnings: false });
-      await commit.commit(id, { confirmWarnings: false });
+      expect(
+        (await prisma.import.findUniqueOrThrow({ where: { id } })).actorId,
+      ).toBe('firebase:uploader-uid');
+      await commit.commit(
+        id,
+        { confirmWarnings: false },
+        'firebase:committer-uid',
+      );
+      await commit.commit(
+        id,
+        { confirmWarnings: false },
+        'firebase:another-admin',
+      );
       const history = await prisma.priceHistory.findMany({
         where: { importId: id },
       });
       expect(history).toHaveLength(1);
       expect(history[0].source).toBe(format.toUpperCase());
+      expect(history[0].actorId).toBe('firebase:committer-uid');
       expect((await offers.detail(merchantId, offer.id)).price.amount).toBe(
         '110.00',
       );

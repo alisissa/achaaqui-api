@@ -38,13 +38,13 @@ async function bootstrap(): Promise<void> {
 
   if (config.get<boolean>('SWAGGER_ENABLED', false)) {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('Catalog API')
+      .setTitle('AchaAqui API')
       .setDescription(
-        'Versioned public catalog contracts. Protected admin and merchant contracts will be added in Phase 2.',
+        'Public catalog API. Administrative operations require an approved platform administrator signed in with Google. Merchant self-service is not enabled.',
       )
       .setVersion('1.0')
       .addBearerAuth(
-        { type: 'http', scheme: 'bearer', bearerFormat: 'admin-api-key' },
+        { type: 'http', scheme: 'bearer', bearerFormat: 'Firebase ID token' },
         'admin-key',
       )
       .build();

@@ -111,6 +111,61 @@ export class ImportTemplateService {
         'Imports never restore removed offers. Restore explicitly in the merchant catalog.',
       ],
     ]);
+    if (query.locale === 'pt-BR') {
+      // Keep machine-readable field names and the Instructions sheet name
+      // stable so both languages round-trip through the same parser.
+      const pt = [
+        ['Campo', 'Como preencher'],
+        [
+          'merchantSku',
+          'Obrigatório. SKU exclusivo do lojista, como Texto. Preserve os zeros à esquerda.',
+        ],
+        [
+          'productName',
+          'Obrigatório. Nome descritivo. O nome não cadastra nem identifica produtos automaticamente.',
+        ],
+        [
+          'brand / model',
+          'Informações descritivas opcionais de marca e modelo.',
+        ],
+        [
+          'barcode',
+          'Obrigatório para um novo SKU. Use um código de barras existente no catálogo, como Texto, preservando zeros à esquerda.',
+        ],
+        [
+          'price',
+          'Obrigatório, positivo, com até duas casas decimais. Exemplos: 1299.00 ou 1299,00. Sem símbolo de moeda.',
+        ],
+        ['currency', 'Obrigatório: BRL, USD ou PYG.'],
+        [
+          'stock',
+          'Opcional. Número inteiro de 0 a 100000000. Em branco significa não informado.',
+        ],
+        [
+          'availability',
+          'IN_STOCK (em estoque), OUT_OF_STOCK (sem estoque) ou UNKNOWN (não informado). Aceita TRUE/FALSE ou SIM/NÃO. Em branco, será inferido pelo estoque.',
+        ],
+        [
+          'Limites',
+          '500 linhas / 2 MB. Uma aba visível de dados. Sem fórmulas, linhas ocultas, células mescladas ou macros.',
+        ],
+        [
+          'Antes do envio',
+          'Mantenha a primeira linha da aba Catalog. Substitua ou remova linhas indesejadas. O modelo em branco não contém produtos de exemplo. No Numbers, exporte para Excel (.xlsx) ou CSV.',
+        ],
+        [
+          'Após o envio',
+          'Confira a validação, os SKUs convertidos e as alterações de preço. Somente a confirmação explícita altera os produtos publicados.',
+        ],
+        [
+          'Produtos removidos',
+          'Importações nunca restauram produtos removidos. Restaure-os explicitamente no catálogo do lojista.',
+        ],
+      ];
+      pt.forEach((values, index) => {
+        instructions.getRow(index + 1).values = values;
+      });
+    }
     instructions.getRow(1).font = { bold: true };
     instructions.eachRow((row) => {
       row.alignment = { vertical: 'top', wrapText: true };
