@@ -18,6 +18,10 @@ export class RequestLoggingInterceptor implements NestInterceptor {
     const startedAt = Date.now();
     const request = context.switchToHttp().getRequest<AdminRequest>();
     const response = context.switchToHttp().getResponse<Response>();
+    // Protect authenticated responses on direct Cloud Run URLs as well as
+    // Firebase Hosting, whose separate routing configuration also disables caching.
+    if (request.adminActor)
+      response.setHeader('Cache-Control', 'private, no-store');
 
     return next.handle().pipe(
       finalize(() => {

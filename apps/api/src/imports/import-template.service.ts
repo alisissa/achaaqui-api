@@ -74,12 +74,15 @@ export class ImportTemplateService {
       ],
       [
         'productName',
-        'Required. Descriptive product name. Names do not automatically create or match products.',
+        'Required. Exact variant name, including distinguishing details. Unmatched rows propose new products; names never auto-match.',
       ],
-      ['brand / model', 'Optional descriptive information.'],
+      [
+        'brand / model',
+        'Brand is required for new products. Model is optional.',
+      ],
       [
         'barcode',
-        'Required for a new SKU. Use an existing catalog barcode as Text; preserve leading zeros.',
+        'Optional. New products require 8, 12, 13, or 14 digits, not a repeated digit. Use a real barcode as Text, preserving leading zeros, or leave blank. Never reuse a barcode for different products.',
       ],
       [
         'price',
@@ -110,6 +113,10 @@ export class ImportTemplateService {
         'Removed offers',
         'Imports never restore removed offers. Restore explicitly in the merchant catalog.',
       ],
+      [
+        'category',
+        'Optional existing category name. Blank means Uncategorized for new products; review the warning.',
+      ],
     ]);
     if (query.locale === 'pt-BR') {
       // Keep machine-readable field names and the Instructions sheet name
@@ -122,15 +129,15 @@ export class ImportTemplateService {
         ],
         [
           'productName',
-          'Obrigatório. Nome descritivo. O nome não cadastra nem identifica produtos automaticamente.',
+          'Obrigatório. Nome da variante exata, com seus detalhes. Linhas sem correspondência propõem novos produtos; nomes nunca vinculam automaticamente.',
         ],
         [
           'brand / model',
-          'Informações descritivas opcionais de marca e modelo.',
+          'Marca obrigatória para novos produtos. Modelo opcional.',
         ],
         [
           'barcode',
-          'Obrigatório para um novo SKU. Use um código de barras existente no catálogo, como Texto, preservando zeros à esquerda.',
+          'Opcional. Use o código de barras real como Texto, preservando zeros à esquerda. Nunca reutilize o mesmo código para produtos diferentes.',
         ],
         [
           'price',
@@ -160,6 +167,10 @@ export class ImportTemplateService {
         [
           'Produtos removidos',
           'Importações nunca restauram produtos removidos. Restaure-os explicitamente no catálogo do lojista.',
+        ],
+        [
+          'category',
+          'Opcional. Nome de uma categoria existente. Em branco, novos produtos ficam sem categoria (Uncategorized); confira o aviso.',
         ],
       ];
       pt.forEach((values, index) => {
@@ -201,6 +212,7 @@ export class ImportTemplateService {
             model: true,
             barcode: true,
             brand: { select: { name: true } },
+            category: { select: { name: true } },
           },
         },
       },
@@ -219,6 +231,7 @@ export class ImportTemplateService {
       offer.currency,
       offer.stockQuantity === null ? '' : String(offer.stockQuantity),
       offer.availability,
+      offer.product.category.name,
     ]);
   }
 }

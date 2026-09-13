@@ -10,6 +10,7 @@ export const CANONICAL_IMPORT_FIELDS = [
   'currency',
   'stock',
   'availability',
+  'category',
 ] as const;
 
 export type CanonicalImportField = (typeof CANONICAL_IMPORT_FIELDS)[number];
@@ -19,6 +20,7 @@ export interface NormalizedImportRow {
   productName: string | null;
   brand: string | null;
   model: string | null;
+  category?: string | null;
   barcode: string | null;
   price: string | null;
   currency: string | null;
@@ -43,6 +45,8 @@ const HEADER_ALIASES: Record<string, CanonicalImportField> = {
   marca: 'brand',
   model: 'model',
   modelo: 'model',
+  category: 'category',
+  categoria: 'category',
   barcode: 'barcode',
   ean: 'barcode',
   upc: 'barcode',
@@ -276,6 +280,7 @@ export function normalizeImportRecord(
     ['Product name', productName, 240],
     ['Brand', cleanText(record.brand), 120],
     ['Model', cleanText(record.model), 160],
+    ['Category', cleanText(record.category), 120],
     ['Barcode', normalizeIdentifier(record.barcode), 32],
   ] as const) {
     if (value && value.length > max)
@@ -293,6 +298,7 @@ export function normalizeImportRecord(
       productName,
       brand: cleanText(record.brand),
       model: cleanText(record.model),
+      category: cleanText(record.category),
       barcode: normalizeIdentifier(record.barcode),
       price: price.value,
       currency,

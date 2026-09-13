@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import { Workbook } from 'exceljs';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaService } from '../src/database/prisma.service';
 import {
@@ -147,6 +148,7 @@ describeWithDatabase('CSV import commit integration', () => {
     merchantProductId?: string | null;
     oldCurrency?: string | null;
     oldPrice?: string | null;
+    merchantSku?: string;
     price: string;
     productId?: string;
     status?: ImportRowStatus;
@@ -156,7 +158,7 @@ describeWithDatabase('CSV import commit integration', () => {
     const status = input.status ?? ImportRowStatus.VALID;
     const currentOffer = await prisma.merchantProduct.findFirst({
       where: { merchantId: fixture.merchantId, productId },
-      select: { updatedAt: true },
+      select: { updatedAt: true, merchantSku: true },
     });
     const created = await prisma.import.create({
       data: {
@@ -196,7 +198,10 @@ describeWithDatabase('CSV import commit integration', () => {
               currentPrice:
                 input.oldPrice === undefined ? '100' : input.oldPrice,
               currentUpdatedAt: currentOffer?.updatedAt.toISOString() ?? null,
-              merchantSku: `SKU-${productId.slice(0, 8)}`,
+              merchantSku:
+                input.merchantSku ??
+                currentOffer?.merchantSku ??
+                `SKU-${productId.slice(0, 8)}`,
               model: null,
               price: input.price,
               productName: 'Fixture product',
@@ -414,5 +419,194 @@ describeWithDatabase('CSV import commit integration', () => {
     expect(
       detail.rows.every((row) => row.action === IMPORT_ACTIONS.BLOCKED),
     ).toBe(true);
+  });
+
+  it.each([
+    { format: 'csv', active: true, price: '100' },
+    { format: 'csv', active: false, price: '110' },
+    { format: 'xlsx', active: true, price: '110' },
+    { format: 'xlsx', active: false, price: '100' },
+  ] as const)(
+    'blocks a barcode match that would rename a SKU ($format, active=$active, price=$price)',
+    async ({ format, active, price }) => {
+      const original = await prisma.merchantProduct.update({
+        where: { id: fixture.offerId },
+        data: { active },
+      });
+      const product = await prisma.product.findUniqueOrThrow({
+        where: { id: fixture.productAId },
+      });
+      const columns = [
+        'merchantSku',
+        'productName',
+        'barcode',
+        'price',
+        'currency',
+        'stock',
+      ];
+      const row = ['NEW-SKU', product.name, product.barcode, price, 'BRL', '5'];
+      const workbook = new Workbook();
+      workbook.addWorksheet('Catalog').addRows([columns, row]);
+      const buffer =
+        format === 'xlsx'
+          ? Buffer.from(await workbook.xlsx.writeBuffer())
+          : Buffer.from(`${columns.join(',')}\n${row.join(',')}\n`);
+      const file = {
+        buffer,
+        size: buffer.length,
+        originalname: `rename.${format}`,
+        mimetype:
+          format === 'csv'
+            ? 'text/csv'
+            : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      };
+      const id =
+        format === 'csv'
+          ? await stagingService.stageCsv(
+              { merchantId: fixture.merchantId },
+              file,
+            )
+          : await stagingService.stageXlsx(
+              { merchantId: fixture.merchantId },
+              file,
+            );
+      const detail = await importsService.detail(id);
+
+      expect(detail.rows[0]).toMatchObject({
+        action: IMPORT_ACTIONS.BLOCKED,
+        status: ImportRowStatus.INVALID,
+        errors: [
+          'This product already has a different merchant SKU. Use its existing SKU or edit the listing before importing.',
+        ],
+      });
+      await expect(
+        commitService.commit(id, { confirmWarnings: true }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(
+        await prisma.merchantProduct.findUnique({
+          where: { id: fixture.offerId },
+        }),
+      ).toEqual(original);
+      expect(await prisma.priceHistory.count({ where: { importId: id } })).toBe(
+        0,
+      );
+    },
+  );
+
+  it.each([IMPORT_ACTIONS.UNCHANGED, IMPORT_ACTIONS.PRICE_CHANGE])(
+    'rejects a legacy ready preview that would rename a SKU (%s)',
+    async (action) => {
+      const original = await prisma.merchantProduct.findUniqueOrThrow({
+        where: { id: fixture.offerId },
+      });
+      const id = await stagedImport({
+        action,
+        merchantSku: 'NEW-SKU',
+        price: '100',
+      });
+
+      await expect(
+        commitService.commit(id, { confirmWarnings: false }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(
+        await prisma.merchantProduct.findUnique({
+          where: { id: fixture.offerId },
+        }),
+      ).toEqual(original);
+      expect((await importsService.detail(id)).status).toBe(ImportStatus.READY);
+      expect(await prisma.priceHistory.count({ where: { importId: id } })).toBe(
+        0,
+      );
+    },
+  );
+
+  it('returns a safe conflict and rolls back when a SKU is taken after preview', async () => {
+    const id = await stagedImport({
+      action: IMPORT_ACTIONS.NEW_OFFER,
+      productId: fixture.productBId,
+      merchantProductId: null,
+      merchantSku: 'TAKEN-AFTER-PREVIEW',
+      oldPrice: null,
+      oldCurrency: null,
+      price: '100',
+    });
+    const original = await prisma.merchantProduct.update({
+      where: { id: fixture.offerId },
+      data: { merchantSku: 'TAKEN-AFTER-PREVIEW' },
+    });
+
+    await expect(
+      commitService.commit(id, { confirmWarnings: false }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(
+      await prisma.merchantProduct.findUnique({
+        where: { id: fixture.offerId },
+      }),
+    ).toEqual(original);
+    expect(
+      await prisma.merchantProduct.count({
+        where: { merchantId: fixture.merchantId },
+      }),
+    ).toBe(1);
+    expect(await prisma.priceHistory.count({ where: { importId: id } })).toBe(
+      0,
+    );
+    expect((await importsService.detail(id)).status).toBe(ImportStatus.READY);
+  });
+
+  it('allows only one concurrent import to claim the same SKU for different products', async () => {
+    const productB = await prisma.product.findUniqueOrThrow({
+      where: { id: fixture.productBId },
+    });
+    const productC = await prisma.product.create({
+      data: {
+        brandId: productB.brandId,
+        categoryId: productB.categoryId,
+        name: `${productB.name} C`,
+        slug: `${productB.slug}-c`,
+      },
+    });
+    const ids = await Promise.all(
+      [fixture.productBId, productC.id].map((productId) =>
+        stagedImport({
+          action: IMPORT_ACTIONS.NEW_OFFER,
+          productId,
+          merchantProductId: null,
+          merchantSku: 'CONCURRENT-SKU',
+          oldPrice: null,
+          oldCurrency: null,
+          price: '100',
+        }),
+      ),
+    );
+    const results = await Promise.allSettled(
+      ids.map((id) => commitService.commit(id, { confirmWarnings: false })),
+    );
+
+    expect(
+      results.filter((result) => result.status === 'fulfilled'),
+    ).toHaveLength(1);
+    const rejected = results.filter((result) => result.status === 'rejected');
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].reason).toMatchObject({ status: 409 });
+    expect(
+      await prisma.merchantProduct.count({
+        where: {
+          merchantId: fixture.merchantId,
+          merchantSku: 'CONCURRENT-SKU',
+        },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.priceHistory.count({ where: { importId: { in: ids } } }),
+    ).toBe(1);
+    const states = await prisma.import.findMany({
+      where: { id: { in: ids } },
+      select: { status: true },
+    });
+    expect(states.map(({ status }) => status).sort()).toEqual([
+      'COMMITTED',
+      'READY',
+    ]);
   });
 });

@@ -19,6 +19,15 @@ import { parseCsv, type ParsedCsvRow } from './csv-parser';
 import { parseXlsx } from './xlsx-parser';
 import { UploadCsvDto } from './imports.dto';
 import {
+  catalogText,
+  catalogBrandWhere,
+  catalogBrandMatches,
+  productDraftKey,
+  validNewProductBarcode,
+  NEW_PRODUCT_BARCODE_ERROR,
+  CATALOG_BRAND_ERROR,
+} from './import-catalog';
+import {
   normalizeImportRecord,
   normalizeIdentifier,
   type NormalizedImportRow,
@@ -47,13 +56,14 @@ interface ExistingOffer {
   availability: OfferAvailability;
   stockQuantity: number | null;
   updatedAt: Date;
-  product: { id: string; name: string; barcode: string | null };
+  product: MatchedProduct;
 }
 
 interface MatchedProduct {
   id: string;
   name: string;
   barcode: string | null;
+  status: ProductStatus;
 }
 
 interface StagedRow {
@@ -142,6 +152,7 @@ export class ImportStagingService {
     }
 
     const stagedRows = await this.matchRows(merchant.id, parsedRows);
+    await this.validateNewProducts(stagedRows);
     this.markDuplicateProducts(stagedRows);
     const summary = this.summarize(stagedRows);
     const created = await this.prisma.import.create({
@@ -152,7 +163,7 @@ export class ImportStagingService {
         originalFilename: file.originalname,
         sourceReference: `sha256:${fileHash}`,
         mappingSnapshot: {
-          version: 1,
+          version: 2,
           mode: `canonical-${sourceType.toLowerCase()}`,
         },
         summary: { ...summary },
@@ -241,12 +252,14 @@ export class ImportStagingService {
           availability: true,
           stockQuantity: true,
           updatedAt: true,
-          product: { select: { id: true, name: true, barcode: true } },
+          product: {
+            select: { id: true, name: true, barcode: true, status: true },
+          },
         },
       }),
       this.prisma.product.findMany({
-        where: { barcode: { in: barcodes }, status: ProductStatus.ACTIVE },
-        select: { id: true, name: true, barcode: true },
+        where: { barcode: { in: barcodes } },
+        select: { id: true, name: true, barcode: true, status: true },
       }),
     ]);
     const productIds = productsByBarcode.map((product) => product.id);
@@ -261,7 +274,9 @@ export class ImportStagingService {
         availability: true,
         stockQuantity: true,
         updatedAt: true,
-        product: { select: { id: true, name: true, barcode: true } },
+        product: {
+          select: { id: true, name: true, barcode: true, status: true },
+        },
       },
     });
     const skuMap = new Map(
@@ -303,7 +318,16 @@ export class ImportStagingService {
         errors,
       );
       this.addComparisonWarnings(result.data, matched.offer, warnings);
-      const action = this.actionFor(result.data, matched.offer, errors);
+      if (matched.product?.status === ProductStatus.INACTIVE)
+        errors.push('The matched catalog product is inactive.');
+      if (!matched.product && !result.data.brand)
+        errors.push('Product name and brand are required for new products.');
+      if (!matched.product && !validNewProductBarcode(result.data.barcode))
+        errors.push(NEW_PRODUCT_BARCODE_ERROR);
+      const action =
+        errors.length === 0 && !matched.product
+          ? IMPORT_ACTIONS.NEW_PRODUCT
+          : this.actionFor(result.data, matched.offer, errors);
 
       return {
         source,
@@ -350,19 +374,132 @@ export class ImportStagingService {
       };
     }
     if (barcodeProduct) {
+      const offer = productOfferMap.get(barcodeProduct.id);
+      if (offer && data.merchantSku !== offer.merchantSku) {
+        errors.push(
+          'This product already has a different merchant SKU. Use its existing SKU or edit the listing before importing.',
+        );
+      }
       return {
         product: barcodeProduct,
-        offer: productOfferMap.get(barcodeProduct.id),
+        offer,
         method: MatchMethod.BARCODE,
       };
     }
 
-    errors.push(
-      data.barcode
-        ? `No active product has barcode ${data.barcode}.`
-        : 'Unknown SKU requires an exact barcode match.',
-    );
     return { method: MatchMethod.NONE };
+  }
+
+  private async validateNewProducts(rows: StagedRow[]): Promise<void> {
+    const drafts = rows.filter(
+      (row) => row.stored.action === IMPORT_ACTIONS.NEW_PRODUCT,
+    );
+    if (!drafts.length) return;
+    const [products, brands, categories] = await Promise.all([
+      this.prisma.product.findMany({
+        where: {
+          OR: drafts.map(({ normalized: data }) => ({
+            name: { equals: data.productName ?? '', mode: 'insensitive' },
+            brand: catalogBrandWhere(data.brand ?? ''),
+            model: data.model
+              ? { equals: data.model, mode: 'insensitive' }
+              : null,
+          })),
+        },
+        select: {
+          name: true,
+          model: true,
+          brand: { select: { name: true, slug: true } },
+        },
+      }),
+      this.prisma.brand.findMany({
+        where: {
+          OR: drafts.map(({ normalized: data }) =>
+            catalogBrandWhere(data.brand ?? ''),
+          ),
+        },
+        select: { id: true, name: true, slug: true, active: true },
+      }),
+      this.prisma.category.findMany({
+        where: {
+          OR: [
+            { slug: 'uncategorized' },
+            ...drafts.flatMap(({ normalized: data }) =>
+              data.category
+                ? [
+                    {
+                      name: {
+                        equals: data.category,
+                        mode: 'insensitive' as const,
+                      },
+                    },
+                  ]
+                : [],
+            ),
+          ],
+        },
+        select: { name: true, slug: true, active: true },
+      }),
+    ]);
+    const draftKey = (data: NormalizedImportRow): string =>
+      productDraftKey(
+        data,
+        brands.find((brand) => catalogBrandMatches(brand, data.brand ?? ''))
+          ?.id,
+      );
+    const duplicates = this.duplicates(
+      drafts.map((row) => draftKey(row.normalized)),
+    );
+    for (const row of drafts) {
+      const data = row.normalized;
+      if (duplicates.has(draftKey(data)))
+        row.errors.push(
+          'Multiple new rows have the same name, brand, and model. Clarify the variants before importing.',
+        );
+      if (
+        products.some(
+          (product) =>
+            catalogText(product.name) === catalogText(data.productName ?? '') &&
+            catalogText(product.model ?? '') ===
+              catalogText(data.model ?? '') &&
+            catalogBrandMatches(product.brand, data.brand ?? ''),
+        )
+      ) {
+        row.errors.push(
+          'A product with this name, brand, and model already exists. Use its barcode or select it from Add product; names are not automatic matches.',
+        );
+      }
+      const matchingBrands = brands.filter((brand) =>
+        catalogBrandMatches(brand, data.brand ?? ''),
+      );
+      if (
+        matchingBrands.length > 1 ||
+        matchingBrands.some((brand) => !brand.active)
+      )
+        row.errors.push(CATALOG_BRAND_ERROR);
+      const matchingCategories = categories.filter((category) =>
+        data.category
+          ? catalogText(category.name) === catalogText(data.category)
+          : category.slug === 'uncategorized',
+      );
+      if (
+        matchingCategories.length > 1 ||
+        matchingCategories.some((category) => !category.active) ||
+        (data.category && !matchingCategories.length)
+      ) {
+        row.errors.push(
+          'The category is missing, inactive, or ambiguous. Upload again with an active category or leave it blank.',
+        );
+      } else if (!data.category)
+        row.warnings.push(
+          'No category supplied. This new product will use Uncategorized.',
+        );
+      if (!data.barcode)
+        row.warnings.push(
+          'No barcode supplied. Verify this is a distinct new product before creating it.',
+        );
+      if (row.errors.length) row.stored.action = IMPORT_ACTIONS.BLOCKED;
+    }
   }
 
   private addComparisonWarnings(
@@ -451,6 +588,8 @@ export class ImportStagingService {
       if (status === ImportRowStatus.WARNING) summary.warnings += 1;
       if (row.stored.action === IMPORT_ACTIONS.NEW_OFFER)
         summary.newOffers += 1;
+      if (row.stored.action === IMPORT_ACTIONS.NEW_PRODUCT)
+        summary.newProducts += 1;
       if (row.stored.action === IMPORT_ACTIONS.PRICE_CHANGE)
         summary.priceChanges += 1;
       if (row.stored.action === IMPORT_ACTIONS.INVENTORY_CHANGE) {

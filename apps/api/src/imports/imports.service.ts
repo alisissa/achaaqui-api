@@ -15,6 +15,8 @@ import {
 } from './imports.dto';
 import {
   importSummaryFromJson,
+  importPreviewToken,
+  IMPORT_ROW_VERSION_SELECT,
   storedNormalizedRow,
   stringArray,
 } from './import-types';
@@ -36,7 +38,9 @@ const IMPORT_DETAIL_SELECT = {
   rows: {
     orderBy: { sourceRowNumber: 'asc' },
     select: {
+      ...IMPORT_ROW_VERSION_SELECT,
       id: true,
+      updatedAt: true,
       sourceRowNumber: true,
       normalizedData: true,
       status: true,
@@ -135,6 +139,7 @@ export class ImportsService {
   private toDetail(item: ImportDetailRecord): AdminImportDetailDto {
     return {
       ...this.toItem(item),
+      previewToken: importPreviewToken(item.id, item.rows),
       rows: item.rows.map((row): ImportRowPreviewDto => {
         const normalized = storedNormalizedRow(row.normalizedData);
         return {
@@ -144,6 +149,9 @@ export class ImportsService {
           matchMethod: row.matchMethod,
           merchantSku: normalized.merchantSku,
           productName: normalized.productName,
+          brand: normalized.brand,
+          model: normalized.model,
+          category: normalized.category ?? null,
           barcode: normalized.barcode,
           matchedProduct: row.matchedProduct,
           currentPrice:

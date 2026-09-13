@@ -1,6 +1,9 @@
 import type { NormalizedImportRow } from './import-normalization';
+import { createHash } from 'node:crypto';
+import type { Prisma } from '../generated/prisma/client';
 
 export const IMPORT_ACTIONS = {
+  NEW_PRODUCT: 'NEW_PRODUCT',
   NEW_OFFER: 'NEW_OFFER',
   PRICE_CHANGE: 'PRICE_CHANGE',
   INVENTORY_CHANGE: 'INVENTORY_CHANGE',
@@ -19,6 +22,7 @@ export interface StoredNormalizedRow extends NormalizedImportRow {
 
 export interface ImportSummary {
   totalRows: number;
+  newProducts: number;
   newOffers: number;
   priceChanges: number;
   inventoryChanges: number;
@@ -31,6 +35,7 @@ export interface ImportSummary {
 export function emptyImportSummary(): ImportSummary {
   return {
     totalRows: 0,
+    newProducts: 0,
     newOffers: 0,
     priceChanges: 0,
     inventoryChanges: 0,
@@ -66,6 +71,7 @@ export function storedNormalizedRow(value: unknown): StoredNormalizedRow {
     productName: typeof row.productName === 'string' ? row.productName : null,
     brand: typeof row.brand === 'string' ? row.brand : null,
     model: typeof row.model === 'string' ? row.model : null,
+    category: typeof row.category === 'string' ? row.category : null,
     barcode: typeof row.barcode === 'string' ? row.barcode : null,
     price: typeof row.price === 'string' ? row.price : null,
     currency: typeof row.currency === 'string' ? row.currency : null,
@@ -79,6 +85,57 @@ export function storedNormalizedRow(value: unknown): StoredNormalizedRow {
     currentUpdatedAt:
       typeof row.currentUpdatedAt === 'string' ? row.currentUpdatedAt : null,
   };
+}
+
+export const IMPORT_ROW_VERSION_SELECT = {
+  id: true,
+  updatedAt: true,
+  normalizedData: true,
+  status: true,
+  matchedProductId: true,
+  merchantProductId: true,
+  proposedPrice: true,
+  proposedCurrency: true,
+  proposedStock: true,
+  proposedAvailability: true,
+  validationErrors: true,
+  warnings: true,
+} satisfies Prisma.ImportRowSelect;
+
+type PreviewVersionRow = Prisma.ImportRowGetPayload<{
+  select: typeof IMPORT_ROW_VERSION_SELECT;
+}>;
+
+// Rows are immutable in this slice. Bind confirmation to the stored decisions
+// and values as well as timestamps, including invalid rows. This is a revision
+// checksum, not an authorization credential; the guard still verifies the actor.
+export function importPreviewToken(
+  id: string,
+  rows: readonly PreviewVersionRow[],
+): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify([
+        id,
+        [...rows]
+          .sort((a, b) => a.id.localeCompare(b.id))
+          .map((row) => [
+            row.id,
+            row.updatedAt.toISOString(),
+            row.normalizedData,
+            row.status,
+            row.matchedProductId,
+            row.merchantProductId,
+            row.proposedPrice?.toString(),
+            row.proposedCurrency,
+            row.proposedStock,
+            row.proposedAvailability,
+            row.validationErrors,
+            row.warnings,
+          ]),
+      ]),
+    )
+    .digest('hex');
 }
 
 export function importSummaryFromJson(value: unknown): ImportSummary {

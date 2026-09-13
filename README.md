@@ -49,11 +49,20 @@ retain vulnerable transitive packages despite root overrides. See the
 The current import slice exposes protected endpoints under `/v1/admin/imports`
 for upload, history, preview, commit, and cancellation. The canonical fields are
 `merchantSku`, `productName`, `brand`, `model`, `barcode`, `price`, `currency`,
-`stock`, and `availability`; common English and Portuguese aliases are also
+`stock`, `availability`, and optional `category`; common English and Portuguese aliases are also
 accepted.
 
 Parsing writes staging rows only. Matching uses an existing merchant SKU first
 and an exact product barcode second. Invalid or uncertain rows never commit.
+Unmatched rows with a name and brand propose a **new catalog product** and
+merchant listing. They are created together only after an additional explicit
+confirmation bound to the exact preview. Names never automatically match products.
+Category accepts an existing category name; blank uses Uncategorized with a warning.
+Duplicate barcodes remain blocked. See [new-product imports](docs/import-product-creation.md).
+For new products, a nonblank barcode must contain 8, 12, 13 or 14 digits and
+cannot repeat a single digit; use a real barcode or leave it blank. Brand spelling
+aliases with the same slug reuse the brand. Existing identifiers are unchanged.
+When approved for release, deploy the API before the admin; roll back in reverse.
 Commits are explicit, transactional, and idempotent per import. Warning rows
 require an unchecked operator acknowledgement. Overlapping imports for one
 offer are serialized and stale previews are rejected. Actual price or currency
@@ -68,6 +77,11 @@ explicit leading-zero warning that must be acknowledged, even for unchanged
 rows. Keep identifiers as Text whenever possible. Boolean availability values
 are accepted; stock contradictions still fail validation. Native Apple Numbers
 files must be exported to Excel (.xlsx) or CSV. Saved custom mappings remain deferred.
+
+Imports never rename an existing merchant SKU: a barcode match under a different
+SKU is blocked, including for removed listings. Commit also rejects unsafe older
+previews, and concurrent SKU collisions return a conflict without partial writes.
+See [the step-1 safety fixes and verification](docs/admin-safety-step1.md).
 
 ## Individual merchant offers
 

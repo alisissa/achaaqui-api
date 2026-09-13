@@ -27,6 +27,7 @@ jobs:
       ANALYTICS_HASH_KEY: ci-analytics-key-with-at-least-thirty-two-characters
       CORS_ORIGINS: http://localhost:8081
       DATABASE_URL: postgresql://catalog_test:catalog_test@localhost:5432/catalog_test?schema=public
+      TEST_DATABASE_URL: postgresql://catalog_test:catalog_test@localhost:5432/catalog_test?schema=public
       NODE_ENV: test
       SWAGGER_ENABLED: "false"
     steps:

@@ -1,5 +1,12 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsOptional,
+  IsUUID,
+  Matches,
+} from 'class-validator';
 import { PaginationMetaDto } from '../common/dto/pagination-meta.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import {
@@ -31,6 +38,14 @@ export class ImportTemplateQueryDto {
 
 export class CommitImportDto {
   @IsOptional()
+  @IsBoolean()
+  confirmNewProducts?: boolean;
+
+  @IsOptional()
+  @Matches(/^[a-f0-9]{64}$/)
+  expectedPreviewToken?: string;
+
+  @IsOptional()
   @Transform(({ value }: { value: unknown }) => value === true)
   @IsBoolean()
   confirmWarnings = false;
@@ -48,6 +63,7 @@ export class AdminImportQueryDto extends PaginationQueryDto {
 
 export class ImportSummaryDto {
   declare totalRows: number;
+  declare newProducts: number;
   declare newOffers: number;
   declare priceChanges: number;
   declare inventoryChanges: number;
@@ -64,6 +80,9 @@ export class ImportRowPreviewDto {
   declare matchMethod: MatchMethod;
   declare merchantSku: string | null;
   declare productName: string | null;
+  declare brand: string | null;
+  declare model: string | null;
+  declare category: string | null;
   declare barcode: string | null;
   declare matchedProduct: { id: string; name: string } | null;
   declare currentPrice: { amount: string; currency: string } | null;
@@ -88,6 +107,7 @@ export class AdminImportItemDto {
 }
 
 export class AdminImportDetailDto extends AdminImportItemDto {
+  declare previewToken: string;
   declare rows: ImportRowPreviewDto[];
 }
 

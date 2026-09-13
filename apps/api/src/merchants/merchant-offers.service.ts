@@ -8,6 +8,12 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
 import { paginationMeta } from '../common/dto/pagination-meta.dto';
 import { lockMerchantOffers } from '../common/offer-lock';
+import {
+  lockCatalogCreation,
+  resolveCatalogBrand,
+  validNewProductBarcode,
+  NEW_PRODUCT_BARCODE_ERROR,
+} from '../imports/import-catalog';
 import { PrismaService } from '../database/prisma.service';
 import {
   Prisma,
@@ -330,6 +336,7 @@ export class MerchantOffersService {
     tx: Prisma.TransactionClient,
     input: NewCatalogProductDto,
   ): Promise<{ id: string }> {
+    await lockCatalogCreation(tx);
     if (!input.name.trim() || !input.brand.trim())
       throw new BadRequestException('Product name and brand are required.');
     const category = await tx.category.findFirst({
@@ -348,24 +355,13 @@ export class MerchantOffersService {
       throw new ConflictException(
         'That barcode already exists. Select the existing catalog product.',
       );
+    if (!validNewProductBarcode(barcode))
+      throw new BadRequestException(NEW_PRODUCT_BARCODE_ERROR);
     const brandName = input.brand.normalize('NFKC').trim();
-    const brandSlug =
-      brandName
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/^-|-$/g, '')
-        .slice(0, 110) || `brand-${randomUUID().slice(0, 8)}`;
-    const brand = await tx.brand.upsert({
-      where: { slug: brandSlug },
-      update: {},
-      create: { slug: brandSlug, name: brandName },
-      select: { id: true, active: true },
-    });
-    if (!brand.active) throw new ConflictException('This brand is inactive.');
+    const brand = await resolveCatalogBrand(tx, brandName);
     const name = input.name.normalize('NFKC').trim();
-    const productLock = `catalog:${brand.id}:${name.toLowerCase()}:${input.model?.trim() || ''}`;
+    const model = input.model?.normalize('NFKC').trim() || null;
+    const productLock = `catalog:${brand.id}:${name.toLowerCase()}:${model?.toLowerCase() || ''}`;
     await tx.$executeRaw(
       Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${productLock}, 0))`,
     );
@@ -373,7 +369,7 @@ export class MerchantOffersService {
       where: {
         name: { equals: name, mode: 'insensitive' },
         brandId: brand.id,
-        model: input.model?.trim() || null,
+        model: model ? { equals: model, mode: 'insensitive' } : null,
       },
       select: { id: true },
     });
@@ -397,7 +393,7 @@ export class MerchantOffersService {
         brandId: brand.id,
         categoryId: category.id,
         barcode,
-        model: input.model?.trim() || null,
+        model,
       },
       select: { id: true },
     });

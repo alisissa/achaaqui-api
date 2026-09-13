@@ -167,7 +167,8 @@ run('merchant offers and XLSX integration', () => {
     const buffer = Buffer.from(await book.xlsx.writeBuffer());
     const upload = {
       originalname: 'numeric-sku.xlsx',
-      mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      mimetype:
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       buffer,
       size: buffer.length,
     };
@@ -193,7 +194,12 @@ run('merchant offers and XLSX integration', () => {
         name: `New product ${randomUUID()}`,
         brand: prefix,
         categoryId,
-        barcode: '00' + randomUUID().replaceAll('-', '').slice(0, 25),
+        barcode:
+          '789' +
+          BigInt(`0x${randomUUID().replaceAll('-', '').slice(0, 10)}`)
+            .toString()
+            .padStart(10, '0')
+            .slice(-10),
       },
     });
     const added = await offers.create(merchantId, input);

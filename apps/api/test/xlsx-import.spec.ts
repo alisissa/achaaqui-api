@@ -49,6 +49,7 @@ describe('CSV and XLSX import files', () => {
           currency: 'BRL',
           stock: '2',
           availability: 'IN_STOCK',
+          category: '',
         },
       },
     ]);
@@ -219,12 +220,19 @@ describe('downloadable import templates', () => {
     expect(xlsx.contentType).toContain('spreadsheetml');
   });
   it('localizes workbook instructions without changing canonical headers or identifier formats', async () => {
-    const result = await templates.download({format: 'xlsx', locale: 'pt-BR'});
+    const result = await templates.download({
+      format: 'xlsx',
+      locale: 'pt-BR',
+    });
     expect(await parseXlsx(result.buffer)).toEqual([]);
     const workbook = new Workbook();
     await workbook.xlsx.read(Readable.from(result.buffer));
-    expect(workbook.getWorksheet('Instructions')?.getCell('B2').value).toContain('zeros à esquerda');
-    expect(workbook.getWorksheet('Catalog')?.getCell('A1').value).toBe('merchantSku');
+    expect(
+      workbook.getWorksheet('Instructions')?.getCell('B2').value,
+    ).toContain('zeros à esquerda');
+    expect(workbook.getWorksheet('Catalog')?.getCell('A1').value).toBe(
+      'merchantSku',
+    );
     expect(workbook.getWorksheet('Catalog')?.getColumn(1).numFmt).toBe('@');
   });
   it('should neutralize CSV formula prefixes and escape quoted text', () => {
