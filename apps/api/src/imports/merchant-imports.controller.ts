@@ -48,7 +48,9 @@ export class MerchantImportsController {
         fileSize: PHOTO_MAX_BYTES,
         files: 1,
         fields: 0,
-        parts: 1,
+        // Busboy emits partsLimit when the limit is reached, including the
+        // accepted file. files/fields still enforce exactly one file, no fields.
+        parts: 2,
         fieldNameSize: 64,
       },
     }),

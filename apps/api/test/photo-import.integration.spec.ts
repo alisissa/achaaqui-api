@@ -15,7 +15,6 @@ import { PrismaService } from '../src/database/prisma.service';
 import { MerchantAccessService } from '../src/merchant-access/merchant-access.service';
 import { PasswordService } from '../src/merchant-access/password.service';
 import { AllExceptionsFilter } from '../src/common/filters/all-exceptions.filter';
-import { PhotoOcrService } from '../src/imports/photo-ocr.service';
 import { CANONICAL_IMPORT_FIELDS } from '../src/imports/import-normalization';
 import type { ParsedCsvRow } from '../src/imports/csv-parser';
 import type { AdminImportDetailDto } from '../src/imports/imports.dto';
@@ -122,7 +121,7 @@ run('photo import HTTP isolation and lifecycle', () => {
       require('../dist/imports/photo-ocr.service.js') as typeof import('../src/imports/photo-ocr.service');
     const { FirebaseAdminAuthService } =
       require('../dist/admin-auth/firebase-admin-auth.service.js') as typeof import('../src/admin-auth/firebase-admin-auth.service');
-    const realOcr = new PhotoOcrService(config);
+    const realOcr = new CompiledOcr(config);
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ConfigService)
       .useValue(config)
@@ -279,6 +278,20 @@ run('photo import HTTP isolation and lifecycle', () => {
         )
       ).status,
     ).toBe(400);
+    const twoFiles = uploadBody();
+    twoFiles.append('file', new Blob([new Uint8Array(png)]), 'second.png');
+    expect(
+      (await call('/merchant/imports/photo', 'POST', twoFiles)).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          '/merchant/imports/photo',
+          'POST',
+          uploadBody(false, Buffer.alloc(5 * 1024 * 1024 + 1)),
+        )
+      ).status,
+    ).toBe(413);
     expect(providerCalls).toBe(before);
   });
   it('scopes read, correction, cancellation, commit and remainder by authenticated merchant', async () => {
@@ -309,6 +322,19 @@ run('photo import HTTP isolation and lifecycle', () => {
       items: { id: string }[];
     };
     expect(own.items.some((item) => item.id === other.id)).toBe(false);
+    const csv = await prisma.import.create({
+      data: { merchantId: a, sourceType: 'CSV', status: 'READY' },
+    });
+    expect((await call(`/merchant/imports/${csv.id}`)).status).toBe(404);
+    expect(
+      (
+        await call(
+          `/merchant/imports/${csv.id}/commit`,
+          'POST',
+          commitBody(other),
+        )
+      ).status,
+    ).toBe(404);
   });
   it('commits good rows only, exposes why the other row was blocked, then resolves only the remainder', async () => {
     const good = makeRow();
@@ -331,6 +357,18 @@ run('photo import HTTP isolation and lifecycle', () => {
         })
       ).status,
     ).toBe(400);
+    for (const missing of [
+      { confirmed: false },
+      { confirmWarnings: false },
+      { confirmNewProducts: false },
+    ]) {
+      const denied = await call(
+        `/merchant/imports/${preview.id}/commit`,
+        'POST',
+        { ...commitBody(preview), ...missing },
+      );
+      expect([400, 409]).toContain(denied.status);
+    }
     const result = await call(
       `/merchant/imports/${preview.id}/commit`,
       'POST',
@@ -418,6 +456,137 @@ run('photo import HTTP isolation and lifecycle', () => {
     expect(listing?.merchantSku).toBe(
       original.rawData.merchantSku.toUpperCase(),
     );
+  });
+  it('recreates cancelled remainders idempotently without another provider call', async () => {
+    const preview = await stage([makeRow(), makeRow({ price: 'invalid' })]);
+    expect(
+      (
+        await call(
+          `/merchant/imports/${preview.id}/commit`,
+          'POST',
+          commitBody(preview),
+        )
+      ).status,
+    ).toBe(201);
+    const first = (await (
+      await call(`/merchant/imports/${preview.id}/remaining`, 'POST')
+    ).json()) as AdminImportDetailDto;
+    expect(
+      (
+        await call(`/merchant/imports/${first.id}/cancel`, 'POST', {
+          expectedPreviewToken: first.previewToken,
+        })
+      ).status,
+    ).toBe(201);
+    const calls = providerCalls;
+    const responses = await Promise.all([
+      call(`/merchant/imports/${preview.id}/remaining`, 'POST'),
+      call(`/merchant/imports/${preview.id}/remaining`, 'POST'),
+    ]);
+    const [a, b] = await Promise.all(
+      responses.map(async (response) => {
+        expect(response.status).toBe(201);
+        return (await response.json()) as AdminImportDetailDto;
+      }),
+    );
+    expect(a.id).toBe(b.id);
+    expect(a.id).not.toBe(first.id);
+    expect(a.status).toBe('READY');
+    expect(a.rows).toHaveLength(1);
+    expect(a.rows[0].input?.price).toBe('invalid');
+    expect(
+      (await prisma.import.findUniqueOrThrow({ where: { id: first.id } }))
+        .status,
+    ).toBe('CANCELLED');
+    expect(providerCalls).toBe(calls);
+    expect(
+      await prisma.priceHistory.count({ where: { importId: preview.id } }),
+    ).toBe(1);
+  });
+  it('marks only this store expired photo reservations failed and preserves current reads', async () => {
+    const expired = new Date(Date.now() - 6 * 60_000);
+    const old = await prisma.import.create({
+      data: {
+        merchantId: a,
+        sourceType: 'PHOTO',
+        status: 'UPLOADED',
+        createdAt: expired,
+      },
+    });
+    const other = await prisma.import.create({
+      data: {
+        merchantId: b,
+        sourceType: 'PHOTO',
+        status: 'UPLOADED',
+        createdAt: expired,
+      },
+    });
+    const active = await prisma.import.create({
+      data: { merchantId: a, sourceType: 'PHOTO', status: 'UPLOADED' },
+    });
+    const csv = await prisma.import.create({
+      data: {
+        merchantId: a,
+        sourceType: 'CSV',
+        status: 'UPLOADED',
+        createdAt: expired,
+      },
+    });
+    expect((await call('/merchant/imports')).status).toBe(200);
+    const status = async (id: string): Promise<string> =>
+      (await prisma.import.findUniqueOrThrow({ where: { id } })).status;
+    expect(await status(old.id)).toBe('FAILED');
+    expect(await status(other.id)).toBe('UPLOADED');
+    expect(await status(active.id)).toBe('UPLOADED');
+    expect(await status(csv.id)).toBe('UPLOADED');
+  });
+  it('rejects a second simultaneous read with a busy message and no paid call', async () => {
+    let release: (() => void) | undefined;
+    let entered: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    beforeExtract = async () => {
+      entered?.();
+      await wait;
+    };
+    extraction = [makeRow()];
+    const first = call('/merchant/imports/photo', 'POST', uploadBody());
+    await started;
+    const calls = providerCalls;
+    try {
+      const second = await call(
+        '/merchant/imports/photo',
+        'POST',
+        uploadBody(),
+        sessionB.token,
+      );
+      expect(second.status).toBe(429);
+      expect(((await second.json()) as { message: string }).message).toBe(
+        'PHOTO_READER_BUSY',
+      );
+      expect(providerCalls).toBe(calls);
+    } finally {
+      release?.();
+      await first;
+    }
+  });
+  it('caps total daily paid calls across stores at twenty', async () => {
+    await prisma.import.createMany({
+      data: Array.from({ length: 20 }, () => ({
+        merchantId: b,
+        sourceType: 'PHOTO' as const,
+        status: 'FAILED' as const,
+      })),
+    });
+    const calls = providerCalls;
+    expect(
+      (await call('/merchant/imports/photo', 'POST', uploadBody())).status,
+    ).toBe(429);
+    expect(providerCalls).toBe(calls);
   });
   it('revalidates duplicates after skipping, rejects stale confirmation and preserves original OCR data', async () => {
     const p = await stage([
@@ -512,6 +681,157 @@ run('photo import HTTP isolation and lifecycle', () => {
       (await call('/merchant/imports/photo', 'POST', uploadBody())).status,
     ).toBe(429);
     expect(providerCalls).toBe(before);
+  });
+  it('keeps an explicitly skipped unchanged row available for correction', async () => {
+    const original = makeRow();
+    const first = await stage([original]);
+    expect(
+      (
+        await call(
+          `/merchant/imports/${first.id}/commit`,
+          'POST',
+          commitBody(first),
+        )
+      ).status,
+    ).toBe(201);
+    const preview = await stage([original, makeRow()]);
+    expect(preview.rows[0].action).toBe('UNCHANGED');
+    const skipped = await call(
+      `/merchant/imports/${preview.id}/rows/${preview.rows[0].id}`,
+      'PATCH',
+      {
+        expectedPreviewToken: preview.previewToken,
+        input: preview.rows[0].input,
+        skip: true,
+      },
+    );
+    expect(skipped.status).toBe(200);
+    const updated = (await skipped.json()) as AdminImportDetailDto;
+    expect(updated.rows[0].action).toBe('BLOCKED');
+    expect(
+      (
+        await call(
+          `/merchant/imports/${updated.id}/commit`,
+          'POST',
+          commitBody(updated),
+        )
+      ).status,
+    ).toBe(201);
+    const remainder = await call(
+      `/merchant/imports/${updated.id}/remaining`,
+      'POST',
+    );
+    expect(remainder.status).toBe(201);
+    const next = (await remainder.json()) as AdminImportDetailDto;
+    expect(next.rows).toHaveLength(1);
+    expect(next.rows[0].merchantSku).toBe(
+      original.rawData.merchantSku.toUpperCase(),
+    );
+    expect(next.rows[0].action).toBe('UNCHANGED');
+  });
+  it('blocks an offer changed after preview until the operator saves and confirms an updated preview', async () => {
+    const original = makeRow();
+    const first = await stage([original]);
+    expect(
+      (
+        await call(
+          `/merchant/imports/${first.id}/commit`,
+          'POST',
+          commitBody(first),
+        )
+      ).status,
+    ).toBe(201);
+    const preview = await stage([
+      { ...original, rawData: { ...original.rawData, price: '120' } },
+    ]);
+    const offer = await prisma.merchantProduct.findUniqueOrThrow({
+      where: {
+        merchantId_merchantSku: {
+          merchantId: a,
+          merchantSku: original.rawData.merchantSku.toUpperCase(),
+        },
+      },
+    });
+    await prisma.merchantProduct.update({
+      where: { id: offer.id },
+      data: {
+        price: '110',
+        updatedAt: new Date(offer.updatedAt.getTime() + 1000),
+      },
+    });
+    expect(
+      (
+        await call(
+          `/merchant/imports/${preview.id}/commit`,
+          'POST',
+          commitBody(preview),
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      await prisma.priceHistory.count({ where: { importId: preview.id } }),
+    ).toBe(0);
+    const refreshed = await call(
+      `/merchant/imports/${preview.id}/rows/${preview.rows[0].id}`,
+      'PATCH',
+      {
+        expectedPreviewToken: preview.previewToken,
+        input: preview.rows[0].input,
+        skip: false,
+      },
+    );
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as AdminImportDetailDto;
+    expect(next.rows[0].currentPrice?.amount).toBe('110');
+    expect(
+      (
+        await call(
+          `/merchant/imports/${next.id}/commit`,
+          'POST',
+          commitBody(next),
+        )
+      ).status,
+    ).toBe(201);
+  });
+  it('commits the full 100-row photo limit once and does not duplicate it on retry', async () => {
+    const preview = await stage(Array.from({ length: 100 }, () => makeRow()));
+    const commit = await call(
+      `/merchant/imports/${preview.id}/commit`,
+      'POST',
+      commitBody(preview),
+    );
+    expect(commit.status).toBe(201);
+    expect(
+      (
+        await call(
+          `/merchant/imports/${preview.id}/commit`,
+          'POST',
+          commitBody(preview),
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      await prisma.priceHistory.count({ where: { importId: preview.id } }),
+    ).toBe(100);
+  }, 35000);
+  it('rejects a revoked login between preview and commit without publishing any row', async () => {
+    const preview = await stage([makeRow()], sessionB.token);
+    await access.setActive(b, false, 'test-admin');
+    expect(
+      (
+        await call(
+          `/merchant/imports/${preview.id}/commit`,
+          'POST',
+          commitBody(preview),
+          sessionB.token,
+        )
+      ).status,
+    ).toBe(401);
+    expect(
+      await prisma.priceHistory.count({ where: { importId: preview.id } }),
+    ).toBe(0);
+    await access.setActive(b, true, 'test-admin');
+    sessionB = await access.login({ username: `${prefix}-b`, password });
   });
   it('rechecks authority after OCR and before staging any rows', async () => {
     beforeExtract = async () => {

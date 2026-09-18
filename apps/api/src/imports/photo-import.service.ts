@@ -60,7 +60,7 @@ export class PhotoImportService {
   ) {}
 
   requireEnabled(): void {
-    if (!this.config.get<boolean>('PHOTO_IMPORT_ENABLED', false))
+    if (this.config.get<boolean>('PHOTO_IMPORT_ENABLED', false) !== true)
       throw new NotFoundException('PHOTO_DISABLED');
   }
 
@@ -69,7 +69,7 @@ export class PhotoImportService {
     file: UploadedCsvFile | undefined,
   ): Promise<AdminImportDetailDto> {
     this.requireEnabled();
-    if (this.inFlight >= 1) throw busy();
+    if (this.inFlight >= 1) throw new HttpException('PHOTO_READER_BUSY', 429);
     this.inFlight++;
     let id: string | undefined;
     try {
@@ -109,7 +109,7 @@ export class PhotoImportService {
     return await this.prisma.$transaction(async (tx) => {
       await lockMerchantAccess(tx, actor);
       // Serialize quota reservation across processes/restarts, not only per IP.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended('photo-import-quota', 0))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('photo-import-quota', 0))`;
       const day = new Date();
       day.setUTCHours(0, 0, 0, 0);
       const global = await tx.import.count({
@@ -129,7 +129,7 @@ export class PhotoImportService {
           createdAt: { gte: new Date(Date.now() - 60_000) },
         },
       });
-      if (global >= 200 || own >= 20 || recent >= 3) throw busy();
+      if (global >= 20 || own >= 20 || recent >= 3) throw busy();
       const item = await tx.import.create({
         data: {
           merchantId: actor.merchantId,
@@ -157,6 +157,7 @@ export class PhotoImportService {
     id: string,
   ): Promise<AdminImportDetailDto> {
     this.requireEnabled();
+    await this.expireInterruptedReads(actor);
     return await this.imports.detail(id, actor.merchantId);
   }
 
@@ -164,11 +165,29 @@ export class PhotoImportService {
     actor: MerchantActor,
   ): Promise<{ id: string; status: ImportStatus; createdAt: Date }[]> {
     this.requireEnabled();
+    await this.expireInterruptedReads(actor);
     return await this.prisma.import.findMany({
       where: { merchantId: actor.merchantId, sourceType: 'PHOTO' },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: { id: true, status: true, createdAt: true },
+    });
+  }
+
+  private async expireInterruptedReads(actor: MerchantActor): Promise<void> {
+    // Provider timeout is 40 seconds. A five-minute reservation can no longer
+    // be a healthy request; clean it up lazily without a background worker.
+    await this.prisma.$transaction(async (tx) => {
+      await lockMerchantAccess(tx, actor);
+      await tx.import.updateMany({
+        where: {
+          merchantId: actor.merchantId,
+          sourceType: 'PHOTO',
+          status: 'UPLOADED',
+          createdAt: { lt: new Date(Date.now() - 5 * 60_000) },
+        },
+        data: { status: 'FAILED', failedAt: new Date() },
+      });
     });
   }
 
@@ -256,6 +275,7 @@ export class PhotoImportService {
                   item.rows.find((row) => row.id === rowId)?.normalizedData,
                 ),
                 input: { ...input.input },
+                action: 'BLOCKED',
               },
               commitResult: {
                 action: 'SKIPPED_BY_MERCHANT',
@@ -319,9 +339,21 @@ export class PhotoImportService {
         const commitKey = `photo-remainder:${id}`;
         const existing = await tx.import.findUnique({
           where: { commitKey, merchantId: actor.merchantId },
-          select: { id: true },
+          select: { id: true, status: true },
         });
-        if (existing) return existing.id;
+        if (existing && existing.status !== 'CANCELLED') return existing.id;
+        if (existing) {
+          // Preserve the cancelled audit record, but free the unique retry key.
+          // The parent lock serializes retries; no successful row is repeated.
+          await tx.import.update({
+            where: {
+              id: existing.id,
+              merchantId: actor.merchantId,
+              status: 'CANCELLED',
+            },
+            data: { commitKey: `photo-cancelled-remainder:${existing.id}` },
+          });
+        }
         const rows = item.rows.filter(
           (row) =>
             row.status === 'INVALID' ||

@@ -5,10 +5,14 @@ import {
   GatewayTimeoutException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import sharp from 'sharp';
+import * as sharpModule from 'sharp';
 import { CANONICAL_IMPORT_FIELDS } from './import-normalization';
 import type { UploadedCsvFile } from './import-staging.service';
 import type { ParsedCsvRow } from './csv-parser';
+
+// Sharp exposes the factory directly in CommonJS and as default in ESM.
+const sharp =
+  typeof sharpModule === 'function' ? sharpModule : sharpModule.default;
 
 export const PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 export const PHOTO_MAX_ROWS = 100;
@@ -79,6 +83,7 @@ export class PhotoOcrService {
       // client-provided URL reaches the provider. No image is stored on disk.
       return await image
         .rotate()
+        .flatten({ background: '#ffffff' })
         .resize({
           width: 2600,
           height: 2600,

@@ -10,6 +10,9 @@ describe('credential error redaction', () => {
     '/V1/MERCHANT/AUTH/LOGIN/',
     '/v1/admin/merchants/test/login',
     '/V1/ADMIN/MERCHANTS/test/LOGIN/',
+    '/v1/merchant/imports/photo',
+    '/V1/MERCHANT/IMPORTS/PHOTO/',
+    '/v1/merchant/imports/test/commit',
   ])('never logs credential operation stacks for %s', (path) => {
     const log = vi
       .spyOn(Logger.prototype, 'error')

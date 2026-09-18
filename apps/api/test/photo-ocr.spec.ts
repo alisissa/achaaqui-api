@@ -83,16 +83,14 @@ describe('photo OCR boundary', () => {
       ).rejects.toThrow();
   });
   it('uses fixed HTTPS endpoint, no redirects, and validates annotation at runtime', async () => {
-    const fetcher = vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            document_annotation: JSON.stringify({ rows: [row()] }),
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          document_annotation: JSON.stringify({ rows: [row()] }),
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal('fetch', fetcher);
     expect(
       (await service().extract(Buffer.from('test')))[0].rawData.merchantSku,
@@ -100,9 +98,34 @@ describe('photo OCR boundary', () => {
     const [url, options] = fetcher.mock.calls[0];
     expect(url).toBe('https://api.mistral.ai/v1/ocr');
     expect(options?.redirect).toBe('error');
-    expect((JSON.parse(String(options?.body)) as { model: string }).model).toBe(
+    if (typeof options?.body !== 'string')
+      throw new Error('Expected JSON body');
+    expect((JSON.parse(options.body) as { model: string }).model).toBe(
       'mistral-ocr-4-1',
     );
+  });
+  it('flattens transparent PNGs onto white before JPEG encoding', async () => {
+    const buffer = await sharp({
+      create: {
+        width: 120,
+        height: 120,
+        channels: 4,
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const clean = await service().sanitize({
+      buffer,
+      size: buffer.length,
+      originalname: 'sheet.png',
+      mimetype: 'image/png',
+    });
+    const { data, info } = await sharp(clean)
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    expect(info.channels).toBe(3);
+    expect([...data.subarray(0, 3)]).toEqual([255, 255, 255]);
   });
   it('hides provider error bodies and does not retry paid calls', async () => {
     const fetcher = vi

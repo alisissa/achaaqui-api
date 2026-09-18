@@ -85,6 +85,12 @@ See [the step-1 safety fixes and verification](docs/admin-safety-step1.md).
 
 ## Individual merchant offers
 
+The [photo-import review](docs/photo-import-review-2026-09-18.md) documents the
+new mobile camera/gallery source, editable row errors, partial commits and
+remaining-row correction. It reuses the existing import pipeline and stays
+disabled by default. This feature is not deployed; review and native-device
+testing are still required.
+
 The protected `/v1/admin/merchants/:merchantId/offers` endpoints support listing,
 adding, editing, removing, and restoring merchant offers. Operators can select an
 existing catalog product or create a new product and its first offer atomically.

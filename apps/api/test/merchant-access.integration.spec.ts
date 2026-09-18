@@ -61,6 +61,7 @@ run('merchant HTTP access and transaction isolation', () => {
     NODE_ENV: 'test',
     DATABASE_URL: url,
     MERCHANT_ACCESS_ENABLED: true,
+    PHOTO_IMPORT_ENABLED: false,
     IMPORT_SUPPORTED_CURRENCIES: 'BRL,USD,PYG',
     ADMIN_AUTH_MODE: 'firebase',
     FIREBASE_PROJECT_ID: 'achaaqui-web',
