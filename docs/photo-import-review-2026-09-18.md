@@ -4,7 +4,8 @@
 
 Implementation and pre-release verification are complete. This handoff describes
 the reviewed code, not live rollout status. Production release evidence is tracked
-separately; do not infer enablement from these local checks.
+in [the rollout record](photo-import-release-2026-09-18.md); do not infer
+enablement from these local checks.
 The earlier API/mobile checkpoint commits (`0796335` / `4c2d4fd`) contained
 unfinished photo work alongside prior merchant access/review/localization work.
 The follow-up fixes described here are a separate review diff.
