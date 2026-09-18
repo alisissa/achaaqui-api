@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { paginationMeta } from '../common/dto/pagination-meta.dto';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma, ReviewStatus } from '../generated/prisma/client';
@@ -61,7 +65,6 @@ export class ReviewsService {
     const productByOffer = new Map(
       offers.map((offer) => [offer.id, offer.productId]),
     );
-    if (offers.length === 0) return new Map();
     const reviews = await this.prisma.customerReview.groupBy({
       by: ['merchantProductId'],
       where: {
@@ -73,12 +76,31 @@ export class ReviewsService {
     });
     const ratings = new Map<string, RatingAccumulator>();
     for (const review of reviews) {
-      const productId = productByOffer.get(review.merchantProductId);
+      const productId = review.merchantProductId
+        ? productByOffer.get(review.merchantProductId)
+        : undefined;
       if (!productId || review._avg.productRating === null) continue;
       const current = ratings.get(productId) ?? { total: 0, count: 0 };
       current.total += review._avg.productRating * review._count._all;
       current.count += review._count._all;
       ratings.set(productId, current);
+    }
+
+    const productReviews = await this.prisma.customerReview.groupBy({
+      by: ['productId'],
+      where: {
+        productId: { in: [...productIds] },
+        status: ReviewStatus.PUBLISHED,
+      },
+      _avg: { productRating: true },
+      _count: { _all: true },
+    });
+    for (const review of productReviews) {
+      if (!review.productId || review._avg.productRating === null) continue;
+      const current = ratings.get(review.productId) ?? { total: 0, count: 0 };
+      current.total += review._avg.productRating * review._count._all;
+      current.count += review._count._all;
+      ratings.set(review.productId, current);
     }
 
     return toRatingMap(ratings);
@@ -110,11 +132,14 @@ export class ReviewsService {
     });
     const ratings = new Map<string, RatingAccumulator>();
     for (const review of reviews) {
-      const merchantId = merchantByOffer.get(review.merchantProductId);
+      const merchantId = review.merchantProductId
+        ? merchantByOffer.get(review.merchantProductId)
+        : undefined;
       if (!merchantId || review._avg.merchantRating === null) continue;
       const current = ratings.get(merchantId) ?? { total: 0, count: 0 };
       current.total += review._avg.merchantRating * review._count._all;
       current.count += review._count._all;
+      ratings.set(merchantId, current);
     }
 
     return toRatingMap(ratings);
@@ -137,6 +162,7 @@ export class ReviewsService {
               },
               { title: { contains: search, mode: 'insensitive' } },
               { comment: { contains: search, mode: 'insensitive' } },
+              { product: { name: { contains: search, mode: 'insensitive' } } },
               {
                 merchantProduct: {
                   merchant: {
@@ -173,6 +199,7 @@ export class ReviewsService {
           status: true,
           createdAt: true,
           moderatedAt: true,
+          product: { select: { id: true, slug: true, name: true } },
           merchantProduct: {
             select: {
               merchant: { select: { id: true, slug: true, name: true } },
@@ -186,16 +213,18 @@ export class ReviewsService {
       id: review.id,
       productRating: review.productRating,
       merchantRating: review.merchantRating,
-      combinedRating:
-        combineRatings(review.productRating, review.merchantRating) ?? 0,
+      combinedRating: combineRatings(
+        review.productRating,
+        review.merchantRating,
+      ),
       reviewerDisplayName: review.reviewerDisplayName,
       title: review.title,
       comment: review.comment,
       status: review.status,
       createdAt: review.createdAt.toISOString(),
       moderatedAt: review.moderatedAt?.toISOString() ?? null,
-      merchant: review.merchantProduct.merchant,
-      product: review.merchantProduct.product,
+      merchant: review.merchantProduct?.merchant ?? null,
+      product: this.reviewProduct(review),
     }));
 
     return { items, ...paginationMeta(total, query.page, query.pageSize) };
@@ -210,7 +239,7 @@ export class ReviewsService {
       this.prisma.customerReview.aggregate({
         where: { status: ReviewStatus.PUBLISHED },
         _avg: { productRating: true, merchantRating: true },
-        _count: { _all: true },
+        _count: { _all: true, merchantRating: true },
       }),
     ]);
     const statusCounts = statusGroups.map((group) => ({
@@ -238,7 +267,7 @@ export class ReviewsService {
           published._avg.merchantRating === null
             ? null
             : Math.round(published._avg.merchantRating * 100) / 100,
-        count: published._count._all,
+        count: published._count.merchantRating,
       },
     };
   }
@@ -274,6 +303,7 @@ export class ReviewsService {
         status: true,
         createdAt: true,
         moderatedAt: true,
+        product: { select: { id: true, slug: true, name: true } },
         merchantProduct: {
           select: {
             merchant: { select: { id: true, slug: true, name: true } },
@@ -287,16 +317,30 @@ export class ReviewsService {
       id: review.id,
       productRating: review.productRating,
       merchantRating: review.merchantRating,
-      combinedRating:
-        combineRatings(review.productRating, review.merchantRating) ?? 0,
+      combinedRating: combineRatings(
+        review.productRating,
+        review.merchantRating,
+      ),
       reviewerDisplayName: review.reviewerDisplayName,
       title: review.title,
       comment: review.comment,
       status: review.status,
       createdAt: review.createdAt.toISOString(),
       moderatedAt: review.moderatedAt?.toISOString() ?? null,
-      merchant: review.merchantProduct.merchant,
-      product: review.merchantProduct.product,
+      merchant: review.merchantProduct?.merchant ?? null,
+      product: this.reviewProduct(review),
     };
+  }
+
+  private reviewProduct(review: {
+    product: { id: string; slug: string; name: string } | null;
+    merchantProduct: {
+      product: { id: string; slug: string; name: string };
+    } | null;
+  }): { id: string; slug: string; name: string } {
+    const product = review.product ?? review.merchantProduct?.product;
+    if (!product)
+      throw new InternalServerErrorException('Review product unavailable.');
+    return product;
   }
 }

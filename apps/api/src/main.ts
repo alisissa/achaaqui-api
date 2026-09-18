@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
+import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 
@@ -18,6 +19,17 @@ async function bootstrap(): Promise<void> {
     .filter((origin) => origin.length > 0);
 
   app.use(helmet());
+  app.use((request: Request, response: Response, next: NextFunction) => {
+    const routePath = request.path.toLowerCase().replace(/\/+$/, '');
+    if (
+      routePath.startsWith('/v1/merchant/') ||
+      routePath.startsWith('/v1/admin/') ||
+      routePath.startsWith('/v1/reviews/') ||
+      /^\/v1\/products\/[^/]+\/reviews(?:\/mine)?$/.test(routePath)
+    )
+      response.setHeader('Cache-Control', 'private, no-store');
+    next();
+  });
   const trustProxyHops = config.get<number>('TRUST_PROXY_HOPS', 0);
   if (trustProxyHops > 0) app.set('trust proxy', trustProxyHops);
   app.enableCors({

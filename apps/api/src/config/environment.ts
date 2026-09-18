@@ -12,6 +12,10 @@ interface Environment {
   FRESHNESS_STALE_HOURS: number;
   ADMIN_API_KEY: string;
   ADMIN_AUTH_MODE: 'local-key' | 'firebase';
+  MERCHANT_ACCESS_ENABLED: boolean;
+  PRODUCT_REVIEWS_ENABLED: boolean;
+  PHOTO_IMPORT_ENABLED: boolean;
+  MISTRAL_API_KEY: string;
   FIREBASE_PROJECT_ID: string;
   ANALYTICS_HASH_KEY: string;
   ANALYTICS_RETENTION_DAYS: number;
@@ -195,7 +199,22 @@ export function validateEnvironment(
     FRESHNESS_AGING_HOURS: agingHours,
     FRESHNESS_STALE_HOURS: staleHours,
     ADMIN_AUTH_MODE: authMode,
+    MERCHANT_ACCESS_ENABLED: booleanValue(
+      rawEnvironment.MERCHANT_ACCESS_ENABLED,
+      false,
+    ),
+    PRODUCT_REVIEWS_ENABLED: booleanValue(
+      rawEnvironment.PRODUCT_REVIEWS_ENABLED,
+      false,
+    ),
     FIREBASE_PROJECT_ID: firebaseProjectId,
+    PHOTO_IMPORT_ENABLED: booleanValue(
+      rawEnvironment.PHOTO_IMPORT_ENABLED,
+      false,
+    ),
+    MISTRAL_API_KEY: booleanValue(rawEnvironment.PHOTO_IMPORT_ENABLED, false)
+      ? secretValue(rawEnvironment.MISTRAL_API_KEY, 'MISTRAL_API_KEY')
+      : '',
     ADMIN_API_KEY:
       authMode === 'local-key'
         ? secretValue(rawEnvironment.ADMIN_API_KEY, 'ADMIN_API_KEY')

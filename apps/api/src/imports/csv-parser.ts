@@ -6,6 +6,7 @@ export interface ParsedCsvRow {
   sourceRowNumber: number;
   rawData: Record<string, string>;
   warnings?: string[];
+  errors?: string[];
 }
 
 export function parseCsv(

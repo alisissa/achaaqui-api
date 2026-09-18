@@ -120,6 +120,40 @@ export class ImportStagingService {
     return await this.stage(input, file, ImportSource.XLSX, actorId);
   }
 
+  // Same normalization/matching/validation engine for spreadsheet and photo rows.
+  // This method never writes catalog data and treats extraction as untrusted input.
+  async prepareRows(
+    merchantId: string,
+    rows: ParsedCsvRow[],
+  ): Promise<{
+    summary: ImportSummary;
+    rows: Prisma.ImportRowUncheckedCreateWithoutImportInput[];
+  }> {
+    const staged = await this.matchRows(merchantId, rows);
+    await this.validateNewProducts(staged);
+    this.markDuplicateProducts(staged);
+    return {
+      summary: this.summarize(staged),
+      rows: staged.map((row) => ({
+        sourceRowNumber: row.source.sourceRowNumber,
+        rawData: row.source.rawData,
+        normalizedData: { ...row.stored, input: row.source.rawData },
+        matchedProductId: row.matchedProductId,
+        merchantProductId: row.merchantProductId,
+        matchMethod: row.matchMethod,
+        proposedPrice: row.normalized.price
+          ? new Prisma.Decimal(row.normalized.price)
+          : null,
+        proposedCurrency: row.normalized.currency,
+        proposedStock: row.normalized.stock,
+        proposedAvailability: row.normalized.availability,
+        validationErrors: row.errors,
+        warnings: row.warnings,
+        status: this.rowStatus(row),
+      })),
+    };
+  }
+
   private async stage(
     input: UploadCsvDto,
     file: UploadedCsvFile | undefined,
@@ -290,7 +324,7 @@ export class ImportStagingService {
     );
 
     return normalized.map(({ source, result }) => {
-      const errors = [...result.errors];
+      const errors = [...(source.errors ?? []), ...result.errors];
       const warnings = [...(source.warnings ?? []), ...result.warnings];
       if (
         result.data.merchantSku &&
@@ -338,6 +372,7 @@ export class ImportStagingService {
           currentPrice: matched.offer?.price.toString() ?? null,
           currentCurrency: matched.offer?.currency ?? null,
           currentUpdatedAt: matched.offer?.updatedAt.toISOString() ?? null,
+          currentMerchantSku: matched.offer?.merchantSku ?? null,
         },
         errors: [...new Set(errors)],
         warnings: [...new Set(warnings)],

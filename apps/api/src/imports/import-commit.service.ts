@@ -1,4 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../database/prisma.service';
 import { lockMerchantOffers } from '../common/offer-lock';
@@ -13,6 +17,10 @@ import {
 import { CommitImportDto } from './imports.dto';
 import { createImportProducts } from './import-catalog';
 import type { NormalizedImportRow } from './import-normalization';
+import {
+  lockMerchantAccess,
+  type MerchantActor,
+} from '../merchant-access/merchant-actor';
 import {
   importSummaryFromJson,
   importPreviewToken,
@@ -55,9 +63,18 @@ export class ImportCommitService {
     id: string,
     input: CommitImportDto,
     actorId = 'local-admin',
+    merchantActor?: MerchantActor,
   ): Promise<void> {
     const stagedImport = await this.prisma.import.findUnique({
-      where: { id },
+      where: {
+        id,
+        ...(merchantActor
+          ? {
+              merchantId: merchantActor.merchantId,
+              sourceType: 'PHOTO' as const,
+            }
+          : {}),
+      },
       select: {
         id: true,
         merchantId: true,
@@ -81,7 +98,10 @@ export class ImportCommitService {
         },
       },
     });
-    if (!stagedImport) throw new ConflictException('Import not found.');
+    if (!stagedImport) {
+      if (merchantActor) throw new NotFoundException('Import not found.');
+      throw new ConflictException('Import not found.');
+    }
     if (stagedImport.status === ImportStatus.COMMITTED) return;
     if (stagedImport.status !== ImportStatus.READY) {
       throw new ConflictException(
@@ -91,7 +111,7 @@ export class ImportCommitService {
 
     const previewToken = importPreviewToken(id, stagedImport.rows);
     if (
-      input.expectedPreviewToken &&
+      (merchantActor || input.expectedPreviewToken) &&
       input.expectedPreviewToken !== previewToken
     ) {
       throw new ConflictException(
@@ -178,8 +198,14 @@ export class ImportCommitService {
     await this.prisma
       .$transaction(
         async (transaction) => {
+          if (merchantActor)
+            await lockMerchantAccess(transaction, merchantActor);
           const claimed = await transaction.import.updateMany({
-            where: { id, status: ImportStatus.READY },
+            where: {
+              id,
+              merchantId: stagedImport.merchantId,
+              status: ImportStatus.READY,
+            },
             data: { status: ImportStatus.VALIDATING },
           });
           if (claimed.count !== 1) {
@@ -295,9 +321,11 @@ export class ImportCommitService {
                 newPrice: row.price,
                 currency: row.currency,
                 source:
-                  stagedImport.sourceType === 'XLSX'
-                    ? PriceChangeSource.XLSX
-                    : PriceChangeSource.CSV,
+                  stagedImport.sourceType === 'PHOTO'
+                    ? PriceChangeSource.PHOTO
+                    : stagedImport.sourceType === 'XLSX'
+                      ? PriceChangeSource.XLSX
+                      : PriceChangeSource.CSV,
                 importId: id,
                 importRowId: row.id,
                 actorId,

@@ -41,15 +41,15 @@ export class UpdateReviewStatusDto {
 export class AdminReviewItemDto {
   declare id: string;
   declare productRating: number;
-  declare merchantRating: number;
-  declare combinedRating: number;
+  declare merchantRating: number | null;
+  declare combinedRating: number | null;
   declare reviewerDisplayName: string | null;
   declare title: string | null;
   declare comment: string | null;
   declare status: ReviewStatus;
   declare createdAt: string;
   declare moderatedAt: string | null;
-  declare merchant: { id: string; slug: string; name: string };
+  declare merchant: { id: string; slug: string; name: string } | null;
   declare product: { id: string; slug: string; name: string };
 }
 

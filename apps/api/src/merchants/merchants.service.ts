@@ -153,7 +153,6 @@ export class MerchantsService {
       ...(search
         ? {
             OR: [
-              { merchantSku: { contains: search, mode: 'insensitive' } },
               {
                 product: {
                   OR: [
@@ -185,11 +184,9 @@ export class MerchantsService {
         ],
         select: {
           id: true,
-          merchantSku: true,
           price: true,
           currency: true,
           availability: true,
-          stockQuantity: true,
           sourceUpdatedAt: true,
           product: {
             select: {
@@ -227,10 +224,10 @@ export class MerchantsService {
 
       return {
         id: offer.id,
-        merchantSku: offer.merchantSku,
+        merchantSku: '',
         price: { amount: offer.price.toString(), currency: offer.currency },
         availability: offer.availability,
-        stockQuantity: offer.stockQuantity,
+        stockQuantity: null,
         freshness: this.freshnessService.forOffer(
           offer.availability,
           offer.sourceUpdatedAt,

@@ -20,6 +20,7 @@ enum OfferAvailability {
 }
 
 enum PriceChangeSource {
+  PHOTO
   MANUAL
   CSV
   XLSX
@@ -30,6 +31,7 @@ enum PriceChangeSource {
 }
 
 enum ImportSource {
+  PHOTO
   CSV
   XLSX
   SHEETS
@@ -122,6 +124,7 @@ model Product {
   offers          MerchantProduct[]
   importRows      ImportRow[]
   searchHits      SearchMerchantHit[]
+  reviews         CustomerReview[]
 
   @@index([status, featured, popularityScore])
   @@index([categoryId, status, createdAt])
@@ -161,8 +164,34 @@ model Merchant {
   importProfiles ImportProfile[]
   imports        Import[]
   searchHits     SearchMerchantHit[]
+  login          MerchantUser?
 
   @@index([active, name])
+}
+
+model MerchantUser {
+  id              String            @id @default(uuid()) @db.Uuid
+  merchantId      String            @unique @db.Uuid
+  username        String            @unique @db.VarChar(40)
+  passwordHash    String            @db.VarChar(240)
+  active          Boolean           @default(true)
+  loginAttempts   Int               @default(0)
+  attemptsResetAt DateTime          @default(now()) @db.Timestamptz(3)
+  updatedBy       String            @db.VarChar(180)
+  createdAt       DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
+  merchant        Merchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
+  sessions        MerchantSession[]
+}
+
+model MerchantSession {
+  tokenHash String       @id @db.Char(64)
+  userId    String       @db.Uuid
+  expiresAt DateTime     @db.Timestamptz(3)
+  createdAt DateTime     @default(now()) @db.Timestamptz(3)
+  user      MerchantUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
 }
 
 model MerchantProduct {
@@ -176,6 +205,7 @@ model MerchantProduct {
   stockQuantity   Int?
   sourceUpdatedAt DateTime          @db.Timestamptz(3)
   active          Boolean           @default(true)
+  removedBy       String?           @db.VarChar(180)
   createdAt       DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt       DateTime          @updatedAt @db.Timestamptz(3)
   merchant        Merchant          @relation(fields: [merchantId], references: [id], onDelete: Restrict)
@@ -213,9 +243,11 @@ model PriceHistory {
 
 model CustomerReview {
   id                  String          @id @default(uuid()) @db.Uuid
-  merchantProductId   String          @db.Uuid
+  merchantProductId   String?         @db.Uuid
+  productId           String?         @db.Uuid
+  reviewerHash        String?         @db.Char(64)
   productRating       Int             @db.SmallInt
-  merchantRating      Int             @db.SmallInt
+  merchantRating      Int?            @db.SmallInt
   reviewerDisplayName String?         @db.VarChar(120)
   title               String?         @db.VarChar(160)
   comment             String?
@@ -224,8 +256,12 @@ model CustomerReview {
   moderatedAt         DateTime?       @db.Timestamptz(3)
   createdAt           DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
-  merchantProduct     MerchantProduct @relation(fields: [merchantProductId], references: [id], onDelete: Restrict)
+  merchantProduct     MerchantProduct? @relation(fields: [merchantProductId], references: [id], onDelete: Restrict)
+  product             Product?         @relation(fields: [productId], references: [id], onDelete: Restrict)
 
+  @@unique([productId, reviewerHash])
+  @@index([productId, status, createdAt])
+  @@index([reviewerHash, createdAt])
   @@index([merchantProductId, status, createdAt])
   @@index([status, createdAt])
 }

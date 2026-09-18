@@ -5,15 +5,25 @@ import { ImportCommitService } from './import-commit.service';
 import { ImportStagingService } from './import-staging.service';
 import { ImportsService } from './imports.service';
 import { ImportTemplateService } from './import-template.service';
+import { MerchantAccessModule } from '../merchant-access/merchant-access.module';
+import { PhotoOcrService } from './photo-ocr.service';
+import { PhotoImportService } from './photo-import.service';
+import {
+  MerchantImportsController,
+  PhotoImportGuard,
+} from './merchant-imports.controller';
 
 @Module({
-  imports: [AdminAuthModule],
-  controllers: [AdminImportsController],
+  imports: [AdminAuthModule, MerchantAccessModule],
+  controllers: [AdminImportsController, MerchantImportsController],
   providers: [
     ImportsService,
     ImportStagingService,
     ImportCommitService,
     ImportTemplateService,
+    PhotoOcrService,
+    PhotoImportService,
+    PhotoImportGuard,
   ],
 })
 export class ImportsModule {}

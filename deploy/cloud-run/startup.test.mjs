@@ -53,7 +53,7 @@ test('every compiled admin HTTP operation rejects unauthorized identities', asyn
     });
     delete process.env.FIREBASE_AUTH_EMULATOR_HOST;
     const { Test } = require('@nestjs/testing');
-    const { ThrottlerGuard } = require('@nestjs/throttler');
+    const { ThrottlerStorage } = require('@nestjs/throttler');
     const { SwaggerModule, DocumentBuilder } = require('@nestjs/swagger');
     const { AppModule } = require('../../apps/api/dist/app.module.js');
     const { PrismaService } = require('../../apps/api/dist/database/prisma.service.js');
@@ -63,7 +63,7 @@ test('every compiled admin HTTP operation rejects unauthorized identities', asyn
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(PrismaService).useValue({})
       // Rate limiting is not under test here; avoid turning auth failures into 429s.
-      .overrideGuard(ThrottlerGuard).useValue({ canActivate: () => true })
+      .overrideProvider(ThrottlerStorage).useValue({ increment: async () => ({ totalHits: 1, timeToExpire: 60, isBlocked: false, timeToBlockExpire: 0 }) })
       .compile();
     const approvedClaims = { uid: 'fixture-admin', role: 'platform_admin', email_verified: true, firebase: { sign_in_provider: 'google.com' } };
     const approvedUser = { disabled: false, emailVerified: true, customClaims: { role: 'platform_admin' } };
@@ -93,6 +93,9 @@ test('every compiled admin HTTP operation rejects unauthorized identities', asyn
         .filter(method => ['get', 'post', 'patch', 'delete', 'put'].includes(method))
         .map(method => ({ method: method.toUpperCase(), path: path.replace(/\{[^}]+\}/g, '11111111-1111-4111-8111-111111111111') })));
     assert.equal(operations.length, 21, 'Review coverage when an admin route is added');
+    // Credential management is deliberately omitted from public Swagger, but
+    // remains covered by exactly the same real administrator guard tests.
+    for (const method of ['GET', 'POST', 'PATCH']) operations.push({ method, path: '/v1/admin/merchants/11111111-1111-4111-8111-111111111111/login' });
     for (const scenario of [
       { name: 'anonymous', header: undefined, status: 401, noSdk: true },
       { name: 'forged headers without credentials', header: 'Basic forged', status: 401, noSdk: true },

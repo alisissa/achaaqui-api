@@ -19,6 +19,7 @@ import {
   IMPORT_ROW_VERSION_SELECT,
   storedNormalizedRow,
   stringArray,
+  jsonObject,
 } from './import-types';
 
 const IMPORT_ITEM_SELECT = {
@@ -90,9 +91,12 @@ export class ImportsService {
     };
   }
 
-  async detail(id: string): Promise<AdminImportDetailDto> {
+  async detail(id: string, merchantId?: string): Promise<AdminImportDetailDto> {
     const item = await this.prisma.import.findUnique({
-      where: { id },
+      where: {
+        id,
+        ...(merchantId ? { merchantId, sourceType: 'PHOTO' as const } : {}),
+      },
       select: IMPORT_DETAIL_SELECT,
     });
     if (!item) throw new NotFoundException('Import not found.');
@@ -173,6 +177,17 @@ export class ImportsService {
           action: normalized.action,
           errors: stringArray(row.validationErrors),
           warnings: stringArray(row.warnings),
+          ...(item.sourceType === 'PHOTO'
+            ? {
+                input: jsonObject(jsonObject(row.normalizedData).input),
+                existingMerchantSku:
+                  typeof jsonObject(row.normalizedData).currentMerchantSku ===
+                  'string'
+                    ? (jsonObject(row.normalizedData)
+                        .currentMerchantSku as string)
+                    : null,
+              }
+            : {}),
         };
       }),
     };

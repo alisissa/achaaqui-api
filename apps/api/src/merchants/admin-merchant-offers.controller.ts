@@ -80,10 +80,16 @@ export class AdminMerchantOffersController {
   @Delete(':offerId')
   @ApiOkResponse({ type: AdminOfferDto })
   async remove(
+    @ActorId() actorId: string,
     @Param() params: MerchantOfferParamDto,
     @Body() input: RemoveMerchantOfferDto,
   ): Promise<AdminOfferDto> {
-    return await this.offers.remove(params.merchantId, params.offerId, input);
+    return await this.offers.remove(
+      params.merchantId,
+      params.offerId,
+      input,
+      actorId,
+    );
   }
 }
 

@@ -5,7 +5,7 @@ This repository is the server-side workspace for the catalog product.
 - `apps/api` — NestJS REST API and Prisma/PostgreSQL data model.
 - `docs` — architecture decisions and the implementation tracker.
 
-The customer app lives in `achaaqui-mobile`, and the operational web app lives in the user-provided `achaaqui-admin` repository. The product name is AchaAqui. Production runs on Cloud Run in `us-east4` with Neon PostgreSQL. Firebase platform-admin authentication is implemented; merchant self-service remains disabled. The API is not deployed by this repository's CI.
+The customer app lives in `achaaqui-mobile`, and the operational web app lives in the user-provided `achaaqui-admin` repository. The product name is AchaAqui. Production runs on Cloud Run in `us-east4` with Neon PostgreSQL. Firebase platform-admin authentication and the owner-approved test-only merchant self-service rollout are live. The API is not deployed by this repository's CI.
 
 ## Requirements
 
@@ -93,10 +93,26 @@ Explicit confirmation, optimistic versions, and the same transaction locks as
 imports protect manual edits. These are administrator-operated workflows, not
 merchant self-service authentication.
 
+A new [mobile merchant access slice](docs/mobile-merchant-access.md) adds
+username/password sessions and scoped manual offer routes. It remains
+**disabled by default** in configuration; the owner-approved test-only deployment
+enabled it on 15 September 2026 after the additive migration. See the
+[release record](docs/merchant-release-2026-09-15.md), including remaining gates
+before real merchant onboarding.
+
 See [merchant workflows and template rules](docs/merchant-workflows.md), the
 [local testing checklist](../achaaqui-admin/docs/merchant-testing.md), and the
 [GCP migration plan](docs/gcp-migration-plan.md). Cloud and DNS changes are not
 part of this implementation.
+
+## Anonymous product reviews (deployed 16 September 2026)
+
+The [product-review slice](docs/product-reviews.md) adds immediately published
+1–5 stars plus an optional comment, one per anonymous app identity per product.
+Platform admins can hide reviews. The reviewed SQL migration and compatible
+admin/API are deployed, with `PRODUCT_REVIEWS_ENABLED=true` in production; the
+code default remains false. See [the release record](docs/reviews-release-2026-09-16.md).
+Old admin/API versions cannot read product-only reviews, even if the flag is off.
 
 ## Verification
 

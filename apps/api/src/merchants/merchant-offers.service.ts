@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'node:crypto';
+import {
+  lockMerchantAccess,
+  type MerchantActor,
+} from '../merchant-access/merchant-actor';
 import { paginationMeta } from '../common/dto/pagination-meta.dto';
 import { lockMerchantOffers } from '../common/offer-lock';
 import {
@@ -142,6 +146,7 @@ export class MerchantOffersService {
     merchantId: string,
     input: CreateMerchantOfferDto,
     actorId = 'local-admin',
+    merchantActor?: MerchantActor,
   ): Promise<AdminOfferDto> {
     if (Boolean(input.productId) === Boolean(input.newProduct))
       throw new BadRequestException(
@@ -150,6 +155,8 @@ export class MerchantOffersService {
     const values = this.validateValues(input);
     try {
       const offer = await this.prisma.$transaction(async (tx) => {
+        if (merchantActor)
+          await this.checkMerchantAccess(tx, merchantId, merchantActor);
         await this.requireMerchant(tx, merchantId);
         const product = input.newProduct
           ? await this.createProduct(tx, input.newProduct)
@@ -205,10 +212,13 @@ export class MerchantOffersService {
     offerId: string,
     input: UpdateMerchantOfferDto,
     actorId = 'local-admin',
+    merchantActor?: MerchantActor,
   ): Promise<AdminOfferDto> {
     const values = this.validateValues(input);
     try {
       const offer = await this.prisma.$transaction(async (tx) => {
+        if (merchantActor)
+          await this.checkMerchantAccess(tx, merchantId, merchantActor);
         await this.requireMerchant(tx, merchantId);
         const current = await this.lockCurrent(tx, merchantId, offerId);
         this.assertVersion(current, input.expectedUpdatedAt);
@@ -246,6 +256,11 @@ export class MerchantOffersService {
           data: {
             ...values,
             active: input.active,
+            removedBy: input.active
+              ? null
+              : current.active
+                ? actorId
+                : current.removedBy,
             sourceUpdatedAt: now,
             updatedAt: now,
           },
@@ -276,10 +291,14 @@ export class MerchantOffersService {
     merchantId: string,
     offerId: string,
     input: RemoveMerchantOfferDto,
+    actorId = 'local-admin',
+    merchantActor?: MerchantActor,
   ): Promise<AdminOfferDto> {
     if (input.confirmed !== true)
       throw new BadRequestException('Confirm removal of this merchant offer.');
     const offer = await this.prisma.$transaction(async (tx) => {
+      if (merchantActor)
+        await this.checkMerchantAccess(tx, merchantId, merchantActor);
       await this.requireMerchant(tx, merchantId, false);
       const current = await this.lockCurrent(tx, merchantId, offerId);
       if (current.active) this.assertVersion(current, input.expectedUpdatedAt);
@@ -288,6 +307,7 @@ export class MerchantOffersService {
         data: current.active
           ? {
               active: false,
+              removedBy: actorId,
               updatedAt: new Date(
                 Math.max(Date.now(), current.updatedAt.getTime() + 1),
               ),
@@ -297,6 +317,16 @@ export class MerchantOffersService {
       });
     });
     return this.toDto(offer);
+  }
+
+  private async checkMerchantAccess(
+    tx: Prisma.TransactionClient,
+    merchantId: string,
+    actor: MerchantActor,
+  ): Promise<void> {
+    if (merchantId !== actor.merchantId)
+      throw new NotFoundException('Merchant offer not found.');
+    await lockMerchantAccess(tx, actor);
   }
 
   private validateValues(input: OfferValuesDto): {

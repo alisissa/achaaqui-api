@@ -14,6 +14,7 @@ export const IMPORT_ACTIONS = {
 export type ImportAction = (typeof IMPORT_ACTIONS)[keyof typeof IMPORT_ACTIONS];
 
 export interface StoredNormalizedRow extends NormalizedImportRow {
+  currentMerchantSku?: string | null;
   action: ImportAction;
   currentPrice: string | null;
   currentCurrency: string | null;
@@ -106,7 +107,7 @@ type PreviewVersionRow = Prisma.ImportRowGetPayload<{
   select: typeof IMPORT_ROW_VERSION_SELECT;
 }>;
 
-// Rows are immutable in this slice. Bind confirmation to the stored decisions
+// Bind confirmation to the stored decisions (including photo row corrections)
 // and values as well as timestamps, including invalid rows. This is a revision
 // checksum, not an authorization credential; the guard still verifies the actor.
 export function importPreviewToken(

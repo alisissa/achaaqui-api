@@ -74,6 +74,8 @@ export class ImportSummaryDto {
 }
 
 export class ImportRowPreviewDto {
+  declare input?: Record<string, unknown>;
+  declare existingMerchantSku?: string | null;
   declare id: string;
   declare sourceRowNumber: number;
   declare status: ImportRowStatus;

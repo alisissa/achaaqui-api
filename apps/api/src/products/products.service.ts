@@ -69,11 +69,9 @@ const PRODUCT_DETAIL_SELECT = {
     where: { active: true, merchant: { active: true } },
     select: {
       id: true,
-      merchantSku: true,
       price: true,
       currency: true,
       availability: true,
-      stockQuantity: true,
       sourceUpdatedAt: true,
       merchant: {
         select: {
@@ -326,13 +324,6 @@ export class ProductsService {
                 ? [{ barcode: { equals: normalizedIdentifier } }]
                 : []),
               { brand: { name: { contains: search, mode: 'insensitive' } } },
-              {
-                offers: {
-                  some: {
-                    merchantSku: { contains: search, mode: 'insensitive' },
-                  },
-                },
-              },
             ],
           }
         : {}),
@@ -396,11 +387,11 @@ export class ProductsService {
 
       return {
         id: offer.id,
-        merchantSku: offer.merchantSku,
+        merchantSku: '', // Retained for installed-client compatibility; internal identifier is private.
         merchant: offer.merchant,
         price: { amount: offer.price.toString(), currency: offer.currency },
         availability: offer.availability,
-        stockQuantity: offer.stockQuantity,
+        stockQuantity: null, // Public availability only, never exact inventory.
         freshness: this.freshnessService.forOffer(
           offer.availability,
           offer.sourceUpdatedAt,

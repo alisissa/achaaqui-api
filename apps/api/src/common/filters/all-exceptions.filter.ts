@@ -54,7 +54,19 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
 
     if (status >= 500) {
-      const stack = exception instanceof Error ? exception.stack : undefined;
+      // Credential operations must never log ORM arguments/hashes in a stack.
+      // Express routes also accept case differences and a trailing slash.
+      const routePath = request.path.toLowerCase().replace(/\/+$/, '');
+      const credentialPath =
+        routePath.startsWith('/v1/merchant/imports') ||
+        routePath.startsWith('/v1/merchant/auth') ||
+        routePath.startsWith('/v1/reviews/') ||
+        /^\/v1\/products\/[^/]+\/reviews(?:\/mine)?$/.test(routePath) ||
+        routePath.endsWith('/login');
+      const stack =
+        !credentialPath && exception instanceof Error
+          ? exception.stack
+          : undefined;
       this.logger.error(
         JSON.stringify({
           event: 'request_failed',
