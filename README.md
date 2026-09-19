@@ -88,8 +88,10 @@ See [the step-1 safety fixes and verification](docs/admin-safety-step1.md).
 The [photo-import review](docs/photo-import-review-2026-09-18.md) documents the
 new mobile camera/gallery source, editable row errors, partial commits and
 remaining-row correction. It reuses the existing import pipeline and stays
-disabled by default. This feature is not deployed; review and native-device
-testing are still required.
+disabled by default in code. Production photo access was enabled on 19 September
+2026 after explicit secret-transfer approval and a successful preview/cancel test.
+See [the rollout record](docs/photo-import-release-2026-09-18.md). Native-device
+testing remains pending; signed build 6 is prepared but not uploaded.
 
 The protected `/v1/admin/merchants/:merchantId/offers` endpoints support listing,
 adding, editing, removing, and restoring merchant offers. Operators can select an

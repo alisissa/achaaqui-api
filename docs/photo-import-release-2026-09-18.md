@@ -1,17 +1,20 @@
-# Photo import release — 18 September 2026
+# Photo import release — 18–19 September 2026
 
 ## Current state
 
 Reviewed fixes are committed, merged into `main`, pushed, and deployed to the
-existing API/admin services. Photo access is deliberately **disabled**:
-`PHOTO_IMPORT_ENABLED=false`. The execution safety gate requires explicit
-approval to transfer the replacement key from the ignored
-`apps/api/.env.mistral-test` to Secret Manager `achaaqui-api-mistral-key` in
-`achaaqui-web`, granting only the API runtime identity secret-level read access.
-That approval is pending. No Mistral secret was uploaded or IAM grant made.
+existing API/admin services. Photo access is **enabled** as of 19 September:
+`PHOTO_IMPORT_ENABLED=true`, revision `achaaqui-api-00010-9sl`, 100% traffic.
+After explicit owner approval, the replacement key from the ignored
+`apps/api/.env.mistral-test` was transferred to Secret Manager
+`achaaqui-api-mistral-key` in `achaaqui-web`, with replica in `us-east4` and
+enabled version **1** pinned in the API runtime. Its only explicit IAM binding is
+secretAccessor for `achaaqui-api@achaaqui-web.iam.gserviceaccount.com`; inherited
+project Owner privileges still apply. No project-wide grant or key output.
 
-The owner confirmed replacing the previously exposed key. Its validity/revocation
-was not tested during this rollout. No production OCR request was made.
+The owner confirmed replacing/revoking the previously exposed key. The replacement
+was verified by one successful production OCR request; revocation of the old key
+was not independently tested.
 
 Signed internal-only native build **0.1.0 (6)** is prepared, not uploaded; see
 [the build record](../../achaaqui-mobile/docs/testflight-build-6.md).
@@ -56,7 +59,7 @@ Project `achaaqui-web`, region `us-east4`, existing services:
 
 | Service | Ready revision | Immutable image index digest |
 | --- | --- | --- |
-| API | `achaaqui-api-00009-2wx` | `sha256:49bdc2ec2426e412ae615a59f2a67cc465d7b1ca87ec2e80c8b4b4eab9c01d3c` |
+| API | `achaaqui-api-00010-9sl` | `sha256:49bdc2ec2426e412ae615a59f2a67cc465d7b1ca87ec2e80c8b4b4eab9c01d3c` |
 | Admin | `achaaqui-admin-00006-pdc` | `sha256:60bbd15305348ea593a7ce7b45e414016ddf2a6e38251be660de4273d46055d4` |
 
 Registry: `us-east4-docker.pkg.dev/achaaqui-web/achaaqui/{api,admin}`.
@@ -65,11 +68,15 @@ Linux/amd64 manifests resolved by Cloud Run:
 - API: `sha256:c9d468e93a83d8b16b75ffe1e22628ed9b0b1278560bd123231501617225ac3a`.
 - Admin: `sha256:9064848ffc3de8a7e9abb2b9349841258c2780ae07ee3ac1412d4390d1849b6b`.
 
-Both revisions ready with 100% latest traffic. Etag-protected updates changed only
-container image references and the API photo flag. Runtime identities, Firebase
+Both revisions ready with 100% latest traffic. The initial 18 September rollout
+used API revision `achaaqui-api-00009-2wx` with photo access off. On 19 September,
+an etag-protected update changed only the photo flag and pinned Mistral secret
+reference, preserving the exact reviewed image and all other settings.
+Runtime identities, Firebase
 authentication, existing secrets, service IAM, origins, resources, concurrency,
 timeouts and scaling were read back against preflight and preserved. API service
 min 1/max 1; admin min 0/max 1. No Hosting, DNS, billing or project-IAM changes.
+The new secret-level binding above is the only new IAM grant.
 The EUR 20 alert budget was rechecked; it is not a hard all-service spending limit.
 
 ## Verification
@@ -92,25 +99,34 @@ The EUR 20 alert budget was rechecked; it is not a hard all-service spending lim
   log query for the new revisions from `2026-09-18T16:37:55.091Z` found no ERROR+
   or HTTP 5xx entries at check time. Log ingestion can lag.
 
-No authenticated live merchant write, production photo parse/commit or physical
-iPhone camera test was performed. Earlier real-provider screenshot tests are
-recorded in the handoff and are not phone-photo accuracy evidence.
+The initial disabled rollout made no authenticated merchant writes. The enabled
+rollout on 19 September used the existing demo login and approved nine-row
+spreadsheet screenshot for **one** live photo preview (11.848 seconds). All
+81 cells matched, including blank barcodes, zero stock and FALSE availability.
+The preview `de7dc5ae-6894-496b-b1f2-c296cb6766ff` was cancelled and its CANCELLED
+status read back; no commit endpoint was called. This audit record remains in
+import history. Catalog/offer/history/review table counts and content checksums
+were unchanged. The temporary test session was logged out; login may invalidate
+the demo user's earlier device session. Missing authentication and merchant-token
+admin access returned 401; nonexistent import IDs returned 404; own-import
+responses retained private/no-store headers.
+
+Enablement readback completed at `2026-09-19T06:23:02.278Z`. Detailed evidence is
+in `secret.json`, `enabled.json`, `live-photo.json` and `enable-final.json` under
+the local evidence directory below. No physical iPhone camera test or production
+photo commit is claimed. Screenshot accuracy is not phone-photo accuracy evidence.
 
 Local QA servers were stopped; only the labeled release tmpfs database container
 was removed and its fixtures discarded. The preserved local catalog Docker volume
 metadata was unchanged. Logs, verifiers and screenshots are retained in the
 owner-only `/private/tmp/achaaqui-photo-release.ZhhOLk/` directory.
 
-## Finish enablement
+## Remaining native verification
 
-1. Obtain explicit approval for the exact secret transfer described above.
-2. Store the replacement key server-side and grant only the API service account
-   secret-level accessor access. Pin its version in Cloud Run; never put it in Expo.
-3. Deploy the same compatible image with photo access enabled; verify startup,
-   auth boundaries and one approved test-image preview/cancellation. Do not create
-   public products merely to smoke-test the provider.
-4. Upload build 6 when directed, verify Apple processing/group availability and
-   run the device checks in its build record.
+Secret storage, runtime enablement and the preview/cancellation check are complete.
+Upload build 6 when directed, verify Apple processing/group availability and run
+the physical-device checks in its build record. No new binary was needed for
+this server-only enablement, and no Apple upload was performed.
 
 Account training/retention settings remain owner-unverified; use approved testing
 data only until reviewed. The handoff links the official terms and budget estimate.

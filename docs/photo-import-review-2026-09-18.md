@@ -118,9 +118,9 @@ enum statements use IF NOT EXISTS and run separately in autocommit mode.
 `MISTRAL_API_KEY`; never place it in an Expo public variable. The existing
 `MERCHANT_ACCESS_ENABLED` gate is also required.
 
-The owner approved rollout; an additional explicit secret-transfer approval is
-required by the execution safety gate. Until then, deploy with photo access off.
-Deploy
+The owner approved rollout and then explicitly approved the secret transfer on
+19 September. Production enablement and preview/cancellation passed; see the
+rollout record for current evidence. For subsequent releases, deploy
 compatible API code with photo access disabled, verify the existing catalog and
 merchant workflows, then enable photo access and cut a new native build.
 Do not reuse build 5's native binary for the new camera/picker modules.
