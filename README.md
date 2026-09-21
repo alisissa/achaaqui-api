@@ -1,8 +1,9 @@
 # Catalog platform
 
-Local-only discounts, text promotions, homepage sponsorship and fuzzy search:
-see [the commercial review handoff](docs/commercial-discovery-local.md). Its raw
-SQL has been tested only on disposable databases, not Neon.
+Discounts, text promotions, homepage sponsorship, fuzzy search, merchant file
+imports and review safeguards were deployed on 21 September 2026. See the
+[release record](docs/catalog-review-release-2026-09-21.md) for artifacts,
+verification, limitations and rollback precautions.
 
 This repository is the server-side workspace for the catalog product.
 
@@ -124,8 +125,10 @@ part of this implementation.
 
 ## Anonymous product reviews (deployed 16 September 2026)
 
-Review reporting, personal reviewer blocking and the admin report queue are
-implemented locally, not deployed. See [the scoped handoff](docs/review-safety-local.md).
+Review reporting, personal reviewer blocking, the admin report queue, comment
+filter and reviewer bans were deployed on 21 September 2026. See the
+[release record](docs/catalog-review-release-2026-09-21.md) and
+[scoped implementation handoff](docs/review-safety-local.md).
 
 The [product-review slice](docs/product-reviews.md) adds immediately published
 1–5 stars plus an optional comment, one per anonymous app identity per product.
