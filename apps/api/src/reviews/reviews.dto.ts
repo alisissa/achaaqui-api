@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsEnum,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -16,6 +17,9 @@ export class RatingSummaryDto {
 }
 
 export class AdminReviewQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsIn(['true'])
+  reported?: string;
   @IsOptional()
   @IsEnum(ReviewStatus)
   status?: ReviewStatus;
@@ -39,6 +43,9 @@ export class UpdateReviewStatusDto {
 }
 
 export class AdminReviewItemDto {
+  declare reviewerAccess?: { banned: boolean; revision: string | null } | null;
+  declare reports?: { id: string; reason: string; createdAt: string }[];
+  declare reportCount?: number;
   declare id: string;
   declare productRating: number;
   declare merchantRating: number | null;

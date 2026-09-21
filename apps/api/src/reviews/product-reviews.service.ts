@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
+import { assertAcceptableComment } from './comment-filter';
+import { assertReviewerCanPost } from './reviewer-bans.service';
 import {
   ConflictException,
   HttpException,
@@ -78,10 +80,31 @@ export class ProductReviewsService {
   async list(
     slug: string,
     query: PaginationQueryDto,
+    token?: string,
   ): Promise<ProductReviewListDto> {
     const product = await this.product(slug);
+    const blocks =
+      token === undefined
+        ? []
+        : await this.prisma.reviewBlock.findMany({
+            where: { blockerHash: reviewIdentityHash(token) },
+            select: { reviewId: true, blockedReviewerHash: true },
+            take: 500,
+          });
+    const blockedAuthors = blocks.flatMap((block) =>
+      block.blockedReviewerHash ? [block.blockedReviewerHash] : [],
+    );
     const where: Prisma.CustomerReviewWhereInput = {
       status: 'PUBLISHED',
+      id: { notIn: blocks.map((block) => block.reviewId) },
+      AND: [
+        {
+          OR: [
+            { reviewerHash: null },
+            { reviewerHash: { notIn: blockedAuthors } },
+          ],
+        },
+      ],
       OR: [
         { productId: product.id },
         { merchantProduct: { productId: product.id } },
@@ -138,6 +161,7 @@ export class ProductReviewsService {
           // Serialize this anonymous identity across products, including parallel
           // requests, so the database-backed submission limit cannot race.
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`review:${reviewerHash}`}, 0))`;
+          await assertReviewerCanPost(tx, reviewerHash);
           const products = await tx.$queryRaw<
             Array<{ id: string }>
           >`SELECT id FROM "Product" WHERE slug=${slug} AND status='ACTIVE' FOR SHARE`;
@@ -159,6 +183,7 @@ export class ProductReviewsService {
               'You have already reviewed this product.',
             );
           }
+          assertAcceptableComment(comment);
           const recent = await tx.customerReview.count({
             where: {
               reviewerHash,

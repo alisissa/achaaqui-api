@@ -21,6 +21,10 @@ import {
   stringArray,
   jsonObject,
 } from './import-types';
+import {
+  merchantImportScope,
+  type MerchantImportKind,
+} from './merchant-import-scope';
 
 const IMPORT_ITEM_SELECT = {
   id: true,
@@ -91,16 +95,20 @@ export class ImportsService {
     };
   }
 
-  async detail(id: string, merchantId?: string): Promise<AdminImportDetailDto> {
+  async detail(
+    id: string,
+    merchantId?: string,
+    kind: MerchantImportKind = 'photo',
+  ): Promise<AdminImportDetailDto> {
     const item = await this.prisma.import.findUnique({
       where: {
         id,
-        ...(merchantId ? { merchantId, sourceType: 'PHOTO' as const } : {}),
+        ...(merchantId ? merchantImportScope(merchantId, kind) : {}),
       },
       select: IMPORT_DETAIL_SELECT,
     });
     if (!item) throw new NotFoundException('Import not found.');
-    return this.toDetail(item);
+    return this.toDetail(item, Boolean(merchantId));
   }
 
   async cancel(id: string): Promise<void> {
@@ -140,7 +148,10 @@ export class ImportsService {
     };
   }
 
-  private toDetail(item: ImportDetailRecord): AdminImportDetailDto {
+  private toDetail(
+    item: ImportDetailRecord,
+    merchant = false,
+  ): AdminImportDetailDto {
     return {
       ...this.toItem(item),
       previewToken: importPreviewToken(item.id, item.rows),
@@ -177,7 +188,7 @@ export class ImportsService {
           action: normalized.action,
           errors: stringArray(row.validationErrors),
           warnings: stringArray(row.warnings),
-          ...(item.sourceType === 'PHOTO'
+          ...(item.sourceType === 'PHOTO' || merchant
             ? {
                 input: jsonObject(jsonObject(row.normalizedData).input),
                 existingMerchantSku:

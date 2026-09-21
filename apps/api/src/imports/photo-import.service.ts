@@ -30,11 +30,20 @@ import {
   PHOTO_REVIEW_WARNING,
   PHOTO_UNCERTAIN_ERROR,
 } from './photo-ocr.service';
-import { CommitPhotoImportDto, ResolvePhotoRowDto } from './photo-import.dto';
+import {
+  CommitMerchantImportDto,
+  ResolvePhotoRowDto,
+} from './photo-import.dto';
+import {
+  merchantImportScope,
+  type MerchantImportKind,
+} from './merchant-import-scope';
+import type { ParsedCsvRow } from './csv-parser';
 import type { AdminImportDetailDto } from './imports.dto';
 
 const busy = (): HttpException => new HttpException('PHOTO_LIMIT_REACHED', 429);
 const EDIT_SELECT = {
+  sourceType: true,
   status: true,
   rows: {
     orderBy: { sourceRowNumber: 'asc' },
@@ -59,8 +68,11 @@ export class PhotoImportService {
     private readonly commits: ImportCommitService,
   ) {}
 
-  requireEnabled(): void {
-    if (this.config.get<boolean>('PHOTO_IMPORT_ENABLED', false) !== true)
+  requireEnabled(kind: MerchantImportKind = 'photo'): void {
+    if (
+      kind === 'photo' &&
+      this.config.get<boolean>('PHOTO_IMPORT_ENABLED', false) !== true
+    )
       throw new NotFoundException('PHOTO_DISABLED');
   }
 
@@ -155,19 +167,21 @@ export class PhotoImportService {
   async detail(
     actor: MerchantActor,
     id: string,
+    kind: MerchantImportKind = 'photo',
   ): Promise<AdminImportDetailDto> {
-    this.requireEnabled();
-    await this.expireInterruptedReads(actor);
-    return await this.imports.detail(id, actor.merchantId);
+    this.requireEnabled(kind);
+    if (kind === 'photo') await this.expireInterruptedReads(actor);
+    return await this.imports.detail(id, actor.merchantId, kind);
   }
 
   async list(
     actor: MerchantActor,
+    kind: MerchantImportKind = 'photo',
   ): Promise<{ id: string; status: ImportStatus; createdAt: Date }[]> {
-    this.requireEnabled();
-    await this.expireInterruptedReads(actor);
+    this.requireEnabled(kind);
+    if (kind === 'photo') await this.expireInterruptedReads(actor);
     return await this.prisma.import.findMany({
-      where: { merchantId: actor.merchantId, sourceType: 'PHOTO' },
+      where: merchantImportScope(actor.merchantId, kind),
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: { id: true, status: true, createdAt: true },
@@ -196,18 +210,19 @@ export class PhotoImportService {
     actor: MerchantActor,
     id: string,
     expected: string,
+    kind: MerchantImportKind,
   ): Promise<EditableImport> {
     await lockMerchantAccess(tx, actor);
     const locked = await tx.$queryRaw<
       { id: string }[]
-    >`SELECT "id" FROM "Import" WHERE "id" = ${id}::uuid AND "merchantId" = ${actor.merchantId}::uuid AND "sourceType" = 'PHOTO' FOR UPDATE`;
+    >`SELECT "id" FROM "Import" WHERE "id" = ${id}::uuid AND "merchantId" = ${actor.merchantId}::uuid FOR UPDATE`;
     if (!locked.length) throw new NotFoundException('Import not found.');
     const item = await tx.import.findUnique({
-      where: { id, merchantId: actor.merchantId },
+      where: { id, ...merchantImportScope(actor.merchantId, kind) },
       select: EDIT_SELECT,
     });
+    if (!item) throw new NotFoundException('Import not found.');
     if (
-      !item ||
       item.status !== 'READY' ||
       importPreviewToken(id, item.rows) !== expected
     )
@@ -220,8 +235,9 @@ export class PhotoImportService {
     id: string,
     rowId: string,
     input: ResolvePhotoRowDto,
+    kind: MerchantImportKind = 'photo',
   ): Promise<AdminImportDetailDto> {
-    this.requireEnabled();
+    this.requireEnabled(kind);
     await this.prisma.$transaction(
       async (tx) => {
         const item = await this.lockPreview(
@@ -229,6 +245,7 @@ export class PhotoImportService {
           actor,
           id,
           input.expectedPreviewToken,
+          kind,
         );
         if (!item.rows.some((row) => row.id === rowId))
           throw new NotFoundException('Import row not found.');
@@ -237,19 +254,13 @@ export class PhotoImportService {
         );
         const prepared = await this.staging.prepareRows(
           actor.merchantId,
-          activeRows.map((row) => ({
-            sourceRowNumber: row.sourceRowNumber,
-            rawData:
-              row.id === rowId
-                ? { ...input.input }
-                : this.rowInput(row.normalizedData),
-            warnings: [PHOTO_REVIEW_WARNING],
-            errors:
-              row.id !== rowId &&
-              stringArray(row.validationErrors).includes(PHOTO_UNCERTAIN_ERROR)
-                ? [PHOTO_UNCERTAIN_ERROR]
-                : [],
-          })),
+          activeRows.map((row) =>
+            this.sourceRow(
+              row,
+              kind,
+              row.id === rowId ? { ...input.input } : undefined,
+            ),
+          ),
         );
         // Revalidate ALL remaining rows: fixing/skipping one can clear duplicates
         // in another. Original OCR rawData is retained, never overwritten.
@@ -297,7 +308,34 @@ export class PhotoImportService {
       },
       { timeout: 30_000 },
     );
-    return await this.detail(actor, id);
+    return await this.detail(actor, id, kind);
+  }
+
+  private sourceRow(
+    row: {
+      sourceRowNumber: number;
+      normalizedData: unknown;
+      validationErrors: unknown;
+    },
+    kind: MerchantImportKind,
+    corrected?: Record<string, string>,
+  ): ParsedCsvRow {
+    const stored = jsonObject(row.normalizedData);
+    return {
+      sourceRowNumber: row.sourceRowNumber,
+      rawData: corrected ? { ...corrected } : this.rowInput(stored),
+      warnings:
+        kind === 'photo'
+          ? [PHOTO_REVIEW_WARNING]
+          : stringArray(stored.parseWarnings),
+      errors: corrected
+        ? []
+        : kind === 'photo'
+          ? stringArray(row.validationErrors).filter(
+              (error) => error === PHOTO_UNCERTAIN_ERROR,
+            )
+          : stringArray(stored.parseErrors),
+    };
   }
 
   private rowInput(normalized: unknown): Record<string, string> {
@@ -313,30 +351,38 @@ export class PhotoImportService {
   async commit(
     actor: MerchantActor,
     id: string,
-    input: CommitPhotoImportDto,
+    input: CommitMerchantImportDto,
+    kind: MerchantImportKind = 'photo',
   ): Promise<AdminImportDetailDto> {
-    this.requireEnabled();
-    await this.commits.commit(id, input, `merchant:${actor.userId}`, actor);
-    return await this.detail(actor, id);
+    this.requireEnabled(kind);
+    await this.commits.commit(
+      id,
+      input,
+      `merchant:${actor.userId}`,
+      actor,
+      kind,
+    );
+    return await this.detail(actor, id, kind);
   }
 
   async remaining(
     actor: MerchantActor,
     id: string,
+    kind: MerchantImportKind = 'photo',
   ): Promise<AdminImportDetailDto> {
-    this.requireEnabled();
+    this.requireEnabled(kind);
     const next = await this.prisma.$transaction(
       async (tx) => {
         await lockMerchantAccess(tx, actor);
         await tx.$queryRaw`SELECT "id" FROM "Import" WHERE "id" = ${id}::uuid AND "merchantId" = ${actor.merchantId}::uuid FOR UPDATE`;
         const item = await tx.import.findUnique({
-          where: { id, merchantId: actor.merchantId, sourceType: 'PHOTO' },
+          where: { id, ...merchantImportScope(actor.merchantId, kind) },
           include: { rows: { orderBy: { sourceRowNumber: 'asc' } } },
         });
         if (!item) throw new NotFoundException('Import not found.');
         if (item.status !== 'COMMITTED')
           throw new ConflictException('PHOTO_PREVIEW_CHANGED');
-        const commitKey = `photo-remainder:${id}`;
+        const commitKey = `${kind}-remainder:${id}`;
         const existing = await tx.import.findUnique({
           where: { commitKey, merchantId: actor.merchantId },
           select: { id: true, status: true },
@@ -351,7 +397,7 @@ export class PhotoImportService {
               merchantId: actor.merchantId,
               status: 'CANCELLED',
             },
-            data: { commitKey: `photo-cancelled-remainder:${existing.id}` },
+            data: { commitKey: `${kind}-cancelled-remainder:${existing.id}` },
           });
         }
         const rows = item.rows.filter(
@@ -364,28 +410,19 @@ export class PhotoImportService {
           throw new ConflictException('PHOTO_NO_REMAINING_ROWS');
         const prepared = await this.staging.prepareRows(
           actor.merchantId,
-          rows.map((row) => ({
-            sourceRowNumber: row.sourceRowNumber,
-            rawData: this.rowInput(row.normalizedData),
-            warnings: [PHOTO_REVIEW_WARNING],
-            errors: stringArray(row.validationErrors).includes(
-              PHOTO_UNCERTAIN_ERROR,
-            )
-              ? [PHOTO_UNCERTAIN_ERROR]
-              : [],
-          })),
+          rows.map((row) => this.sourceRow(row, kind)),
         );
         const created = await tx.import.create({
           data: {
             merchantId: actor.merchantId,
             actorId: `merchant:${actor.userId}`,
-            sourceType: 'PHOTO',
+            sourceType: item.sourceType,
             status: 'READY',
             commitKey,
             originalFilename: 'remaining-rows',
             mappingSnapshot: {
               version: 1,
-              mode: 'photo-corrections',
+              mode: `${kind}-corrections`,
               previousImportId: id,
             },
             summary: { ...prepared.summary },
@@ -403,17 +440,18 @@ export class PhotoImportService {
       },
       { timeout: 30_000 },
     );
-    return await this.detail(actor, next);
+    return await this.detail(actor, next, kind);
   }
 
   async cancel(
     actor: MerchantActor,
     id: string,
     expected: string,
+    kind: MerchantImportKind = 'photo',
   ): Promise<void> {
-    this.requireEnabled();
+    this.requireEnabled(kind);
     await this.prisma.$transaction(async (tx) => {
-      await this.lockPreview(tx, actor, id, expected);
+      await this.lockPreview(tx, actor, id, expected, kind);
       await tx.import.update({
         where: { id, merchantId: actor.merchantId },
         data: { status: 'CANCELLED' },

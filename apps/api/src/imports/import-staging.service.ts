@@ -19,6 +19,10 @@ import { parseCsv, type ParsedCsvRow } from './csv-parser';
 import { parseXlsx } from './xlsx-parser';
 import { UploadCsvDto } from './imports.dto';
 import {
+  lockMerchantAccess,
+  type MerchantActor,
+} from '../merchant-access/merchant-actor';
+import {
   catalogText,
   catalogBrandWhere,
   catalogBrandMatches,
@@ -120,6 +124,20 @@ export class ImportStagingService {
     return await this.stage(input, file, ImportSource.XLSX, actorId);
   }
 
+  async stageMerchantFile(
+    actor: MerchantActor,
+    file: UploadedCsvFile | undefined,
+    source: 'CSV' | 'XLSX',
+  ): Promise<string> {
+    return await this.stage(
+      { merchantId: actor.merchantId },
+      file,
+      source,
+      `merchant:${actor.userId}`,
+      actor,
+    );
+  }
+
   // Same normalization/matching/validation engine for spreadsheet and photo rows.
   // This method never writes catalog data and treats extraction as untrusted input.
   async prepareRows(
@@ -137,10 +155,17 @@ export class ImportStagingService {
       rows: staged.map((row) => ({
         sourceRowNumber: row.source.sourceRowNumber,
         rawData: row.source.rawData,
-        normalizedData: { ...row.stored, input: row.source.rawData },
+        normalizedData: {
+          ...row.stored,
+          input: row.source.rawData,
+          parseWarnings: row.source.warnings ?? [],
+          parseErrors: row.source.errors ?? [],
+        },
         matchedProductId: row.matchedProductId,
         merchantProductId: row.merchantProductId,
         matchMethod: row.matchMethod,
+        matchConfidence:
+          row.matchMethod === MatchMethod.NONE ? null : new Prisma.Decimal(1),
         proposedPrice: row.normalized.price
           ? new Prisma.Decimal(row.normalized.price)
           : null,
@@ -159,6 +184,7 @@ export class ImportStagingService {
     file: UploadedCsvFile | undefined,
     sourceType: 'CSV' | 'XLSX',
     actorId: string,
+    merchantActor?: MerchantActor,
   ): Promise<string> {
     this.validateFile(file, sourceType);
     const merchant = await this.prisma.merchant.findUnique({
@@ -185,51 +211,31 @@ export class ImportStagingService {
       );
     }
 
-    const stagedRows = await this.matchRows(merchant.id, parsedRows);
-    await this.validateNewProducts(stagedRows);
-    this.markDuplicateProducts(stagedRows);
-    const summary = this.summarize(stagedRows);
-    const created = await this.prisma.import.create({
-      data: {
-        merchantId: merchant.id,
-        sourceType,
-        status: ImportStatus.READY,
-        originalFilename: file.originalname,
-        sourceReference: `sha256:${fileHash}`,
-        mappingSnapshot: {
-          version: 2,
-          mode: `canonical-${sourceType.toLowerCase()}`,
-        },
-        summary: { ...summary },
-        commitKey,
-        actorId,
-        previewedAt: new Date(),
-        rows: {
-          create: stagedRows.map((row) => ({
-            sourceRowNumber: row.source.sourceRowNumber,
-            rawData: row.source.rawData,
-            normalizedData: { ...row.stored },
-            matchedProductId: row.matchedProductId,
-            merchantProductId: row.merchantProductId,
-            matchMethod: row.matchMethod,
-            matchConfidence:
-              row.matchMethod === MatchMethod.NONE
-                ? null
-                : new Prisma.Decimal(1),
-            proposedPrice: row.normalized.price
-              ? new Prisma.Decimal(row.normalized.price)
-              : null,
-            proposedCurrency: row.normalized.currency,
-            proposedStock: row.normalized.stock,
-            proposedAvailability: row.normalized.availability,
-            validationErrors: row.errors,
-            warnings: row.warnings,
-            status: this.rowStatus(row),
-          })),
-        },
+    const prepared = await this.prepareRows(merchant.id, parsedRows);
+    const data: Prisma.ImportCreateInput = {
+      merchant: { connect: { id: merchant.id } },
+      sourceType,
+      status: ImportStatus.READY,
+      originalFilename: file.originalname,
+      sourceReference: `sha256:${fileHash}`,
+      mappingSnapshot: {
+        version: 2,
+        mode: `canonical-${sourceType.toLowerCase()}`,
       },
-      select: { id: true },
-    });
+      summary: { ...prepared.summary },
+      commitKey,
+      actorId,
+      previewedAt: new Date(),
+      rows: {
+        create: prepared.rows,
+      },
+    };
+    const created = merchantActor
+      ? await this.prisma.$transaction(async (tx) => {
+          await lockMerchantAccess(tx, merchantActor);
+          return await tx.import.create({ data, select: { id: true } });
+        })
+      : await this.prisma.import.create({ data, select: { id: true } });
 
     return created.id;
   }

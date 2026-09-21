@@ -6,6 +6,8 @@ import {
 import { paginationMeta } from '../common/dto/pagination-meta.dto';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma, ReviewStatus } from '../generated/prisma/client';
+import { assertAcceptableComment } from './comment-filter';
+import { assertReviewerCanPost } from './reviewer-bans.service';
 import {
   AdminReviewItemDto,
   AdminReviewListResponseDto,
@@ -150,6 +152,9 @@ export class ReviewsService {
   ): Promise<AdminReviewListResponseDto> {
     const search = query.q?.trim();
     const where: Prisma.CustomerReviewWhereInput = {
+      ...(query.reported === 'true'
+        ? { reports: { some: { resolvedAt: null } } }
+        : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.merchantId
         ? { merchantProduct: { merchantId: query.merchantId } }
@@ -191,6 +196,14 @@ export class ReviewsService {
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
+          reports: {
+            where: { resolvedAt: null },
+            orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+            take: 5,
+            select: { id: true, reason: true, createdAt: true },
+          },
+          _count: { select: { reports: { where: { resolvedAt: null } } } },
+          reviewerHash: true,
           productRating: true,
           merchantRating: true,
           reviewerDisplayName: true,
@@ -209,8 +222,29 @@ export class ReviewsService {
         },
       }),
     ]);
+    const hashes = reviews.flatMap((review) =>
+      review.reviewerHash ? [review.reviewerHash] : [],
+    );
+    const bans = await this.prisma.reviewerBan.findMany({
+      where: { reviewerHash: { in: hashes } },
+      select: { reviewerHash: true, active: true, revision: true },
+    });
+    const access = new Map(
+      bans.map((ban) => [
+        ban.reviewerHash,
+        { banned: ban.active, revision: ban.revision },
+      ]),
+    );
     const items: AdminReviewItemDto[] = reviews.map((review) => ({
       id: review.id,
+      reviewerAccess: review.reviewerHash
+        ? (access.get(review.reviewerHash) ?? { banned: false, revision: null })
+        : null,
+      reports: review.reports.map((report) => ({
+        ...report,
+        createdAt: report.createdAt.toISOString(),
+      })),
+      reportCount: review._count.reports,
       productRating: review.productRating,
       merchantRating: review.merchantRating,
       combinedRating: combineRatings(
@@ -228,6 +262,20 @@ export class ReviewsService {
     }));
 
     return { items, ...paginationMeta(total, query.page, query.pageSize) };
+  }
+
+  async resolveReports(
+    reviewId: string,
+    reportIds: string[],
+    actorId: string,
+  ): Promise<{ saved: boolean }> {
+    // Resolve only the reports the operator actually saw. Concurrent new reports
+    // remain open; clients cannot resolve another review's reports via copied IDs.
+    await this.prisma.reviewReport.updateMany({
+      where: { id: { in: reportIds }, reviewId, resolvedAt: null },
+      data: { resolvedAt: new Date(), resolvedBy: actorId },
+    });
+    return { saved: true };
   }
 
   async adminSummary(): Promise<AdminReviewSummaryDto> {
@@ -277,41 +325,55 @@ export class ReviewsService {
     input: UpdateReviewStatusDto,
     actorId = 'local-admin',
   ): Promise<AdminReviewItemDto> {
-    const existing = await this.prisma.customerReview.findUnique({
-      where: { id },
-      select: { id: true },
-    });
-    if (!existing) {
-      throw new NotFoundException('Review not found.');
-    }
+    const review = await this.prisma.$transaction(
+      async (tx) => {
+        const existing = await tx.customerReview.findUnique({
+          where: { id },
+          select: { id: true, reviewerHash: true, comment: true, title: true },
+        });
+        if (!existing) {
+          throw new NotFoundException('Review not found.');
+        }
 
-    const pending = input.status === ReviewStatus.PENDING;
-    const review = await this.prisma.customerReview.update({
-      where: { id },
-      data: {
-        status: input.status,
-        moderatedAt: pending ? null : new Date(),
-        moderatedBy: pending ? null : actorId,
-      },
-      select: {
-        id: true,
-        productRating: true,
-        merchantRating: true,
-        reviewerDisplayName: true,
-        title: true,
-        comment: true,
-        status: true,
-        createdAt: true,
-        moderatedAt: true,
-        product: { select: { id: true, slug: true, name: true } },
-        merchantProduct: {
-          select: {
-            merchant: { select: { id: true, slug: true, name: true } },
-            product: { select: { id: true, slug: true, name: true } },
+        if (existing.reviewerHash) {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`review:${existing.reviewerHash}`}, 0))`;
+          if (input.status === ReviewStatus.PUBLISHED)
+            await assertReviewerCanPost(tx, existing.reviewerHash, true);
+        }
+        if (input.status === ReviewStatus.PUBLISHED) {
+          assertAcceptableComment(existing.comment);
+          assertAcceptableComment(existing.title);
+        }
+        const pending = input.status === ReviewStatus.PENDING;
+        return tx.customerReview.update({
+          where: { id },
+          data: {
+            status: input.status,
+            moderatedAt: pending ? null : new Date(),
+            moderatedBy: pending ? null : actorId,
           },
-        },
+          select: {
+            id: true,
+            productRating: true,
+            merchantRating: true,
+            reviewerDisplayName: true,
+            title: true,
+            comment: true,
+            status: true,
+            createdAt: true,
+            moderatedAt: true,
+            product: { select: { id: true, slug: true, name: true } },
+            merchantProduct: {
+              select: {
+                merchant: { select: { id: true, slug: true, name: true } },
+                product: { select: { id: true, slug: true, name: true } },
+              },
+            },
+          },
+        });
       },
-    });
+      { maxWait: 5_000, timeout: 10_000 },
+    );
 
     return {
       id: review.id,

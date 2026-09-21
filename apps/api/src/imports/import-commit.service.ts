@@ -15,6 +15,11 @@ import {
   ProductStatus,
 } from '../generated/prisma/client';
 import { CommitImportDto } from './imports.dto';
+import { COMMERCIAL_SELECT, effectivePrice } from '../commercial/offer-pricing';
+import {
+  merchantImportScope,
+  type MerchantImportKind,
+} from './merchant-import-scope';
 import { createImportProducts } from './import-catalog';
 import type { NormalizedImportRow } from './import-normalization';
 import {
@@ -64,15 +69,13 @@ export class ImportCommitService {
     input: CommitImportDto,
     actorId = 'local-admin',
     merchantActor?: MerchantActor,
+    kind: MerchantImportKind = 'photo',
   ): Promise<void> {
     const stagedImport = await this.prisma.import.findUnique({
       where: {
         id,
         ...(merchantActor
-          ? {
-              merchantId: merchantActor.merchantId,
-              sourceType: 'PHOTO' as const,
-            }
+          ? merchantImportScope(merchantActor.merchantId, kind)
           : {}),
       },
       select: {
@@ -262,6 +265,7 @@ export class ImportCommitService {
               productId: { in: commitRows.map((row) => row.productId) },
             },
             select: {
+              ...COMMERCIAL_SELECT,
               id: true,
               productId: true,
               merchantSku: true,
@@ -316,7 +320,9 @@ export class ImportCommitService {
               const previousOffer = currentOffersByProduct.get(row.productId);
               return {
                 merchantProductId,
-                oldPrice: previousOffer?.price ?? null,
+                oldPrice: previousOffer
+                  ? effectivePrice(previousOffer, committedAt)
+                  : null,
                 oldCurrency: previousOffer?.currency ?? null,
                 newPrice: row.price,
                 currency: row.currency,

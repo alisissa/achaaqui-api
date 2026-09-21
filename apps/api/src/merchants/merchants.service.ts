@@ -8,6 +8,11 @@ import { paginationMeta } from '../common/dto/pagination-meta.dto';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { FreshnessService } from '../common/freshness/freshness.service';
 import { PrismaService } from '../database/prisma.service';
+import {
+  COMMERCIAL_SELECT,
+  effectivePrice,
+  publicCommercial,
+} from '../commercial/offer-pricing';
 import { Prisma, ProductStatus } from '../generated/prisma/client';
 import { combineRatings, ReviewsService } from '../reviews/reviews.service';
 import {
@@ -171,18 +176,23 @@ export class MerchantsService {
         : {}),
     };
     const skip = (query.page - 1) * query.pageSize;
-    const [total, offers] = await Promise.all([
+    const now = new Date();
+    // Apply effective-price ordering BEFORE pagination, including expired sales.
+    const orderedIds = await this.prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT o.id FROM "MerchantProduct" o JOIN "Product" p ON p.id = o."productId"
+      JOIN "Brand" b ON b.id = p."brandId" JOIN "Category" c ON c.id = p."categoryId"
+      WHERE o."merchantId" = ${merchant.id}::uuid AND o.active AND p.status = 'ACTIVE'
+        ${query.categorySlug ? Prisma.sql`AND c.slug = ${query.categorySlug} AND c.active` : Prisma.empty}
+        ${search ? Prisma.sql`AND (strpos(lower(p.name), lower(${search})) > 0 OR strpos(lower(coalesce(p.model, '')), lower(${search})) > 0 OR strpos(lower(b.name), lower(${search})) > 0)` : Prisma.empty}
+      ORDER BY o.currency, CASE o.availability WHEN 'IN_STOCK' THEN 0 WHEN 'UNKNOWN' THEN 1 ELSE 2 END,
+        CASE WHEN o."salePrice" IS NOT NULL AND (o."saleEndsAt" IS NULL OR o."saleEndsAt" > ${now}) THEN o."salePrice" ELSE o.price END,
+        o.id LIMIT ${query.pageSize} OFFSET ${skip}`);
+    const [total, fetched] = await Promise.all([
       this.prisma.merchantProduct.count({ where }),
       this.prisma.merchantProduct.findMany({
-        where,
-        skip,
-        take: query.pageSize,
-        orderBy: [
-          { currency: 'asc' },
-          { availability: 'asc' },
-          { price: 'asc' },
-        ],
+        where: { ...where, id: { in: orderedIds.map((row) => row.id) } },
         select: {
+          ...COMMERCIAL_SELECT,
           id: true,
           price: true,
           currency: true,
@@ -206,6 +216,10 @@ export class MerchantsService {
         },
       }),
     ]);
+    const rank = new Map(orderedIds.map((row, index) => [row.id, index]));
+    const offers = fetched.sort(
+      (a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0),
+    );
     const [productRatings, merchantRatings] = await Promise.all([
       this.reviewsService.productRatings(
         offers.map((offer) => offer.product.id),
@@ -225,7 +239,11 @@ export class MerchantsService {
       return {
         id: offer.id,
         merchantSku: '',
-        price: { amount: offer.price.toString(), currency: offer.currency },
+        price: {
+          amount: effectivePrice(offer, now).toString(),
+          currency: offer.currency,
+        },
+        ...publicCommercial(offer, now),
         availability: offer.availability,
         stockQuantity: null,
         freshness: this.freshnessService.forOffer(

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { COMMERCIAL_SELECT, effectivePrice } from '../commercial/offer-pricing';
 import { randomUUID } from 'node:crypto';
 import {
   lockMerchantAccess,
@@ -41,6 +42,8 @@ import {
 } from './merchant-offers.dto';
 
 const offerSelect = {
+  ...COMMERCIAL_SELECT,
+  sponsored: true,
   id: true,
   merchantSku: true,
   price: true,
@@ -270,7 +273,7 @@ export class MerchantOffersService {
           await tx.priceHistory.create({
             data: {
               merchantProductId: offerId,
-              oldPrice: current.price,
+              oldPrice: effectivePrice(current, now),
               oldCurrency: current.currency,
               newPrice: values.price,
               currency: values.currency,
@@ -480,6 +483,11 @@ export class MerchantOffersService {
 
   private toDto(offer: OfferRecord): AdminOfferDto {
     return {
+      salePrice: offer.salePrice?.toString() ?? null,
+      saleEndsAt: offer.saleEndsAt?.toISOString() ?? null,
+      promotionText: offer.promotionText,
+      promotionEndsAt: offer.promotionEndsAt?.toISOString() ?? null,
+      sponsored: offer.sponsored,
       id: offer.id,
       merchantSku: offer.merchantSku,
       price: { amount: offer.price.toFixed(2), currency: offer.currency },

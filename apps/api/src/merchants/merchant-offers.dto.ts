@@ -119,6 +119,11 @@ export class RemoveMerchantOfferDto {
 }
 
 export class AdminOfferDto {
+  declare salePrice: string | null;
+  declare saleEndsAt: string | null;
+  declare promotionText: string | null;
+  declare promotionEndsAt: string | null;
+  declare sponsored: boolean;
   declare id: string;
   declare merchantSku: string;
   declare price: { amount: string; currency: string };

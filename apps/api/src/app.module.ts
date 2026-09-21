@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CommercialModule } from './commercial/commercial.module';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -16,6 +17,7 @@ import { ReviewsModule } from './reviews/reviews.module';
 
 @Module({
   imports: [
+    CommercialModule,
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,

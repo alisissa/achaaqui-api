@@ -114,6 +114,7 @@ model Product {
   status          ProductStatus     @default(ACTIVE)
   featured        Boolean           @default(false)
   popularityScore Int               @default(0)
+  searchText      String            @default("")
   brandId         String            @db.Uuid
   categoryId      String            @db.Uuid
   createdAt       DateTime          @default(now()) @db.Timestamptz(3)
@@ -151,6 +152,8 @@ model Merchant {
   slug           String            @unique @db.VarChar(140)
   name           String            @db.VarChar(180)
   logoUrl        String?
+  sponsored      Boolean           @default(false)
+  highlightedBy  String?           @db.VarChar(180)
   address        String?
   city           String?           @db.VarChar(120)
   countryCode    String?           @db.Char(2)
@@ -200,6 +203,13 @@ model MerchantProduct {
   productId       String            @db.Uuid
   merchantSku     String            @db.VarChar(120)
   price           Decimal           @db.Decimal(14, 2)
+  salePrice       Decimal?          @db.Decimal(14, 2)
+  saleEndsAt      DateTime?         @db.Timestamptz(3)
+  promotionText   String?           @db.VarChar(500)
+  promotionEndsAt DateTime?         @db.Timestamptz(3)
+  sponsored      Boolean           @default(false)
+  commercialUpdatedBy String?      @db.VarChar(180)
+  highlightedBy  String?           @db.VarChar(180)
   currency        String            @db.VarChar(3)
   availability    OfferAvailability @default(UNKNOWN)
   stockQuantity   Int?
@@ -258,12 +268,50 @@ model CustomerReview {
   updatedAt           DateTime        @updatedAt @db.Timestamptz(3)
   merchantProduct     MerchantProduct? @relation(fields: [merchantProductId], references: [id], onDelete: Restrict)
   product             Product?         @relation(fields: [productId], references: [id], onDelete: Restrict)
+  reports             ReviewReport[]
+  blocks              ReviewBlock[]
 
   @@unique([productId, reviewerHash])
   @@index([productId, status, createdAt])
   @@index([reviewerHash, createdAt])
   @@index([merchantProductId, status, createdAt])
   @@index([status, createdAt])
+}
+
+model ReviewerBan {
+  reviewerHash String   @id @db.Char(64)
+  active       Boolean
+  revision     String   @db.Uuid
+  updatedBy    String   @db.VarChar(180)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @db.Timestamptz(3)
+}
+
+model ReviewReport {
+  id           String @id @default(uuid()) @db.Uuid
+  reviewId     String @db.Uuid
+  reporterHash String @db.Char(64)
+  reason       String @db.VarChar(20)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+  resolvedAt   DateTime? @db.Timestamptz(3)
+  resolvedBy   String? @db.VarChar(180)
+  review       CustomerReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, reporterHash])
+  @@index([reporterHash, createdAt])
+  @@index([reviewId, resolvedAt, createdAt])
+}
+
+model ReviewBlock {
+  id                  String @id @default(uuid()) @db.Uuid
+  reviewId            String @db.Uuid
+  blockerHash         String @db.Char(64)
+  blockedReviewerHash String? @db.Char(64)
+  createdAt           DateTime @default(now()) @db.Timestamptz(3)
+  review              CustomerReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerHash, reviewId])
+  @@index([reviewId])
 }
 
 model SearchEvent {

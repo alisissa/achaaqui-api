@@ -9,8 +9,17 @@ import {
 } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ThrottlerStorage } from '@nestjs/throttler';
-import { afterAll, beforeAll, afterEach, describe, expect, it } from 'vitest';
+import {
+  afterAll,
+  beforeAll,
+  afterEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vitest';
 import sharp from 'sharp';
+import { Workbook } from 'exceljs';
 import { PrismaService } from '../src/database/prisma.service';
 import { MerchantAccessService } from '../src/merchant-access/merchant-access.service';
 import { PasswordService } from '../src/merchant-access/password.service';
@@ -20,6 +29,7 @@ import type { ParsedCsvRow } from '../src/imports/csv-parser';
 import type { AdminImportDetailDto } from '../src/imports/imports.dto';
 import type { MerchantLoginResponseDto } from '../src/merchant-access/merchant-access.dto';
 import type { CommitPhotoImportDto } from '../src/imports/photo-import.dto';
+import { ImportStagingService } from '../src/imports/import-staging.service';
 
 const url = process.env.TEST_DATABASE_URL;
 if (
@@ -251,6 +261,293 @@ run('photo import HTTP isolation and lifecycle', () => {
     confirmNewProducts: true,
   });
 
+  async function fileBody(
+    source: 'csv' | 'xlsx',
+    rows: Record<string, string | number>[],
+  ): Promise<FormData> {
+    const headers = [...CANONICAL_IMPORT_FIELDS];
+    let bytes: Uint8Array<ArrayBuffer>;
+    if (source === 'xlsx') {
+      const book = new Workbook();
+      const sheet = book.addWorksheet('Products');
+      sheet.addRow(headers);
+      for (const row of rows)
+        sheet.addRow(headers.map((key) => row[key] ?? ''));
+      bytes = new Uint8Array(await book.xlsx.writeBuffer());
+    } else {
+      bytes = new TextEncoder().encode(
+        [
+          headers.join(','),
+          ...rows.map((row) =>
+            headers
+              .map((key) => `"${String(row[key] ?? '').replaceAll('"', '""')}"`)
+              .join(','),
+          ),
+        ].join('\n'),
+      );
+    }
+    const form = new FormData();
+    form.append('file', new Blob([bytes]), `products.${source}`);
+    return form;
+  }
+  async function stageFile(
+    source: 'csv' | 'xlsx',
+    rows: Record<string, string | number>[] = [makeRow().rawData],
+  ): Promise<AdminImportDetailDto> {
+    const response = await call(
+      `/merchant/file-imports/${source}`,
+      'POST',
+      await fileBody(source, rows),
+    );
+    const result = (await response.json()) as AdminImportDetailDto;
+    expect(response.status, JSON.stringify(result)).toBe(201);
+    expect(result.sourceType).toBe(source.toUpperCase());
+    expect(result.merchant.id).toBe(a);
+    return result;
+  }
+  function fileConfirmation(
+    preview: AdminImportDetailDto,
+  ): Omit<CommitPhotoImportDto, 'reviewedPhoto'> {
+    return {
+      expectedPreviewToken: preview.previewToken,
+      confirmed: true,
+      confirmWarnings: true,
+      confirmNewProducts: true,
+    };
+  }
+
+  for (const source of ['csv', 'xlsx'] as const) {
+    it(`${source}: previews, partially commits, corrects remainder and commits idempotently without OCR`, async () => {
+      const calls = providerCalls;
+      const first = makeRow().rawData;
+      const second = makeRow({ barcode: '0000000000000' }).rawData;
+      const preview = await stageFile(source, [first, second]);
+      expect(preview.rows[0].input?.merchantSku).toBe(first.merchantSku);
+      expect(preview.rows[1].status).toBe('INVALID');
+      expect(
+        await prisma.product.count({
+          where: { name: { in: [first.productName, second.productName] } },
+        }),
+      ).toBe(0);
+      expect(
+        (
+          await call(`/merchant/file-imports/${preview.id}/commit`, 'POST', {
+            ...fileConfirmation(preview),
+            confirmWarnings: false,
+          })
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await call(`/merchant/file-imports/${preview.id}/commit`, 'POST', {
+            ...fileConfirmation(preview),
+            confirmNewProducts: false,
+          })
+        ).status,
+      ).toBe(409);
+      const commit = await call(
+        `/merchant/file-imports/${preview.id}/commit`,
+        'POST',
+        fileConfirmation(preview),
+      );
+      expect(commit.status).toBe(201);
+      expect(
+        (
+          await call(
+            `/merchant/file-imports/${preview.id}/commit`,
+            'POST',
+            fileConfirmation(preview),
+          )
+        ).status,
+      ).toBe(201);
+      expect(
+        await prisma.product.count({ where: { name: first.productName } }),
+      ).toBe(1);
+      expect(
+        await prisma.product.count({ where: { name: second.productName } }),
+      ).toBe(0);
+      const remainder = (await (
+        await call(`/merchant/file-imports/${preview.id}/remaining`, 'POST')
+      ).json()) as AdminImportDetailDto;
+      expect(remainder.rows).toHaveLength(1);
+      expect(
+        (
+          await call(`/merchant/file-imports/${remainder.id}/cancel`, 'POST', {
+            expectedPreviewToken: remainder.previewToken,
+          })
+        ).status,
+      ).toBe(201);
+      const retry = (await (
+        await call(`/merchant/file-imports/${preview.id}/remaining`, 'POST')
+      ).json()) as AdminImportDetailDto;
+      expect(retry.id).not.toBe(remainder.id);
+      const correctedResponse = await call(
+        `/merchant/file-imports/${retry.id}/rows/${retry.rows[0].id}`,
+        'PATCH',
+        {
+          expectedPreviewToken: retry.previewToken,
+          input: { ...retry.rows[0].input, barcode: '' },
+          skip: false,
+        },
+      );
+      expect(correctedResponse.status).toBe(200);
+      const corrected =
+        (await correctedResponse.json()) as AdminImportDetailDto;
+      expect(
+        (
+          await call(
+            `/merchant/file-imports/${retry.id}/commit`,
+            'POST',
+            fileConfirmation(retry),
+          )
+        ).status,
+      ).toBe(409);
+      expect(
+        (
+          await call(
+            `/merchant/file-imports/${retry.id}/commit`,
+            'POST',
+            fileConfirmation(corrected),
+          )
+        ).status,
+      ).toBe(201);
+      expect(
+        await prisma.product.count({ where: { name: second.productName } }),
+      ).toBe(1);
+      expect(providerCalls).toBe(calls);
+    });
+  }
+
+  it('file routes reject anonymous, injected tenants and cross-store or cross-source IDs; work with photos disabled', async () => {
+    const before = providerCalls;
+    expect(
+      (
+        await call(
+          '/merchant/file-imports/csv',
+          'POST',
+          await fileBody('csv', [makeRow().rawData]),
+          null,
+        )
+      ).status,
+    ).toBe(401);
+    const injected = await fileBody('csv', [makeRow().rawData]);
+    injected.append('merchantId', b);
+    expect(
+      (await call('/merchant/file-imports/csv', 'POST', injected)).status,
+    ).toBe(400);
+    const preview = await stageFile('csv');
+    for (const [suffix, method, body] of [
+      ['', 'GET', undefined],
+      ['/commit', 'POST', fileConfirmation(preview)],
+      ['/cancel', 'POST', { expectedPreviewToken: preview.previewToken }],
+      ['/remaining', 'POST', undefined],
+      [
+        `/rows/${preview.rows[0].id}`,
+        'PATCH',
+        {
+          expectedPreviewToken: preview.previewToken,
+          input: preview.rows[0].input,
+          skip: false,
+        },
+      ],
+    ] as const)
+      expect(
+        (
+          await call(
+            `/merchant/file-imports/${preview.id}${suffix}`,
+            method,
+            body,
+            sessionB.token,
+          )
+        ).status,
+      ).toBe(404);
+    const list = (await (
+      await call('/merchant/file-imports', 'GET', undefined, sessionB.token)
+    ).json()) as { items: { id: string }[] };
+    expect(list.items.some((item) => item.id === preview.id)).toBe(false);
+    expect((await call(`/merchant/imports/${preview.id}`)).status).toBe(404);
+    expect(
+      (
+        await call(
+          `/merchant/imports/${preview.id}/commit`,
+          'POST',
+          commitBody(preview),
+        )
+      ).status,
+    ).toBe(404);
+    const photo = await stage([makeRow()]);
+    expect((await call(`/merchant/file-imports/${photo.id}`)).status).toBe(404);
+    const bytes = Buffer.from(
+      'merchantSku,productName,brand,price,currency\nadmin-only,admin-only,test,10,BRL',
+    );
+    const adminId = await new ImportStagingService(prisma, config).stageCsv(
+      { merchantId: a },
+      {
+        buffer: bytes,
+        originalname: 'admin.csv',
+        size: bytes.length,
+        mimetype: 'text/csv',
+      },
+    );
+    expect((await call(`/merchant/file-imports/${adminId}`)).status).toBe(404);
+    expect(
+      (
+        await call(
+          `/merchant/file-imports/${adminId}/commit`,
+          'POST',
+          fileConfirmation(preview),
+        )
+      ).status,
+    ).toBe(404);
+    config.set('PHOTO_IMPORT_ENABLED', false);
+    try {
+      expect((await call(`/merchant/file-imports/${preview.id}`)).status).toBe(
+        200,
+      );
+      await stageFile('xlsx');
+    } finally {
+      config.set('PHOTO_IMPORT_ENABLED', true);
+    }
+    expect(providerCalls).toBe(before + 1);
+  });
+
+  it('retains numeric Excel SKU warnings when another row is corrected', async () => {
+    const row = makeRow().rawData;
+    const preview = await stageFile('xlsx', [
+      { ...row, merchantSku: 12345 },
+      makeRow({ price: '-1' }).rawData,
+    ]);
+    expect(
+      preview.rows[0].warnings.some((warning) =>
+        warning.includes('numeric merchantSku'),
+      ),
+    ).toBe(true);
+    const corrected = (await (
+      await call(
+        `/merchant/file-imports/${preview.id}/rows/${preview.rows[1].id}`,
+        'PATCH',
+        {
+          expectedPreviewToken: preview.previewToken,
+          input: { ...preview.rows[1].input, price: '50' },
+          skip: false,
+        },
+      )
+    ).json()) as AdminImportDetailDto;
+    expect(
+      corrected.rows[0].warnings.some((warning) =>
+        warning.includes('numeric merchantSku'),
+      ),
+    ).toBe(true);
+    expect(
+      (
+        await call(`/merchant/file-imports/${preview.id}/commit`, 'POST', {
+          ...fileConfirmation(corrected),
+          confirmWarnings: false,
+        })
+      ).status,
+    ).toBe(409);
+  });
+
   it('denies anonymous upload and hides disabled feature without provider calls', async () => {
     const before = providerCalls;
     expect(
@@ -263,6 +560,77 @@ run('photo import HTTP isolation and lifecycle', () => {
     ).toBe(404);
     config.set('PHOTO_IMPORT_ENABLED', true);
     expect(providerCalls).toBe(before);
+  });
+  it('file upload rejects oversized and malformed files, extra files, and merchant access to admin routes', async () => {
+    const count = await prisma.import.count({ where: { merchantId: a } });
+    const oversized = new FormData();
+    oversized.append(
+      'file',
+      new Blob([new Uint8Array(2_097_153)]),
+      'large.csv',
+    );
+    expect(
+      (await call('/merchant/file-imports/csv', 'POST', oversized)).status,
+    ).toBe(413);
+    const invalid = new FormData();
+    invalid.append('file', new Blob(['not an XLSX archive']), 'bad.xlsx');
+    expect(
+      (await call('/merchant/file-imports/xlsx', 'POST', invalid)).status,
+    ).toBe(400);
+    const multiple = await fileBody('csv', [makeRow().rawData]);
+    multiple.append('file', new Blob(['second']), 'second.csv');
+    expect(
+      (await call('/merchant/file-imports/csv', 'POST', multiple)).status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          '/admin/imports/csv',
+          'POST',
+          await fileBody('csv', [makeRow().rawData]),
+        )
+      ).status,
+    ).toBe(401);
+    expect(await prisma.import.count({ where: { merchantId: a } })).toBe(count);
+    config.set('MERCHANT_ACCESS_ENABLED', false);
+    try {
+      expect((await call('/merchant/file-imports')).status).toBe(404);
+    } finally {
+      config.set('MERCHANT_ACCESS_ENABLED', true);
+    }
+  });
+  it('file upload rechecks a session revoked during parsing before writing staging rows', async () => {
+    const { ImportStagingService: CompiledStaging } =
+      require('../dist/imports/import-staging.service.js') as typeof import('../src/imports/import-staging.service');
+    const staging = app.get(CompiledStaging);
+    const prepare = staging.prepareRows.bind(staging);
+    const before = await prisma.import.count({ where: { merchantId: b } });
+    const spy = vi
+      .spyOn(staging, 'prepareRows')
+      .mockImplementationOnce(async (...args) => {
+        const prepared = await prepare(...args);
+        await access.setActive(b, false, 'test-admin');
+        return prepared;
+      });
+    try {
+      expect(
+        (
+          await call(
+            '/merchant/file-imports/xlsx',
+            'POST',
+            await fileBody('xlsx', [makeRow().rawData]),
+            sessionB.token,
+          )
+        ).status,
+      ).toBe(401);
+      expect(await prisma.import.count({ where: { merchantId: b } })).toBe(
+        before,
+      );
+    } finally {
+      spy.mockRestore();
+      await access.setActive(b, true, 'test-admin');
+      sessionB = await access.login({ username: `${prefix}-b`, password });
+    }
   });
   it('rejects extra tenant fields and invalid images before contacting provider', async () => {
     const before = providerCalls;

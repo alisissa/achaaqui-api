@@ -59,8 +59,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       const routePath = request.path.toLowerCase().replace(/\/+$/, '');
       const credentialPath =
         routePath.startsWith('/v1/merchant/imports') ||
+        routePath.startsWith('/v1/merchant/file-imports') ||
         routePath.startsWith('/v1/merchant/auth') ||
         routePath.startsWith('/v1/reviews/') ||
+        routePath.startsWith('/v1/admin/reviews') ||
         /^\/v1\/products\/[^/]+\/reviews(?:\/mine)?$/.test(routePath) ||
         routePath.endsWith('/login');
       const stack =

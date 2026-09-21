@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query } from '@nestjs/common';
 import { ApiNotFoundResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { SlugParamDto } from '../common/dto/slug-param.dto';
 import { SearchAnalyticsService } from '../analytics/search-analytics.service';
@@ -22,6 +22,7 @@ export class ProductsController {
   ) {}
 
   @Get()
+  @Header('Cache-Control', 'no-store')
   @ApiOkResponse({ type: ProductListResponseDto })
   async list(
     @Query() query: ProductListQueryDto,
@@ -44,6 +45,7 @@ export class ProductsController {
   }
 
   @Get(':slug')
+  @Header('Cache-Control', 'no-store')
   @ApiOkResponse({ type: ProductDetailDto })
   @ApiNotFoundResponse({ description: 'Product not found.' })
   async detail(@Param() params: SlugParamDto): Promise<ProductDetailDto> {

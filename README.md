@@ -1,5 +1,9 @@
 # Catalog platform
 
+Local-only discounts, text promotions, homepage sponsorship and fuzzy search:
+see [the commercial review handoff](docs/commercial-discovery-local.md). Its raw
+SQL has been tested only on disposable databases, not Neon.
+
 This repository is the server-side workspace for the catalog product.
 
 - `apps/api` — NestJS REST API and Prisma/PostgreSQL data model.
@@ -46,6 +50,11 @@ retain vulnerable transitive packages despite root overrides. See the
 
 ## Merchant CSV and Excel imports
 
+Mobile merchant Excel/CSV import is implemented locally for build 8; it has not
+been deployed. Session-scoped `/v1/merchant/file-imports` routes reuse these same
+parsers and the preview/correction/confirmation pipeline without OCR. See
+[the implementation and review handoff](docs/merchant-file-imports.md).
+
 The current import slice exposes protected endpoints under `/v1/admin/imports`
 for upload, history, preview, commit, and cancellation. The canonical fields are
 `merchantSku`, `productName`, `brand`, `model`, `barcode`, `price`, `currency`,
@@ -90,8 +99,8 @@ new mobile camera/gallery source, editable row errors, partial commits and
 remaining-row correction. It reuses the existing import pipeline and stays
 disabled by default in code. Production photo access was enabled on 19 September
 2026 after explicit secret-transfer approval and a successful preview/cancel test.
-See [the rollout record](docs/photo-import-release-2026-09-18.md). Native-device
-testing remains pending; signed build 6 is prepared but not uploaded.
+See [the rollout record](docs/photo-import-release-2026-09-18.md). Build 7 fixed
+native upload transport; the owner subsequently confirmed photo importing works.
 
 The protected `/v1/admin/merchants/:merchantId/offers` endpoints support listing,
 adding, editing, removing, and restoring merchant offers. Operators can select an
@@ -114,6 +123,9 @@ See [merchant workflows and template rules](docs/merchant-workflows.md), the
 part of this implementation.
 
 ## Anonymous product reviews (deployed 16 September 2026)
+
+Review reporting, personal reviewer blocking and the admin report queue are
+implemented locally, not deployed. See [the scoped handoff](docs/review-safety-local.md).
 
 The [product-review slice](docs/product-reviews.md) adds immediately published
 1–5 stars plus an optional comment, one per anonymous app identity per product.

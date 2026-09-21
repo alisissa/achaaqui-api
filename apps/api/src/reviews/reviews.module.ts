@@ -7,6 +7,9 @@ import {
   ReviewIdentityController,
 } from './product-reviews.controller';
 import { ProductReviewsService } from './product-reviews.service';
+import { ReviewSafetyController } from './review-safety.controller';
+import { ReviewSafetyService } from './review-safety.service';
+import { ReviewerBansService } from './reviewer-bans.service';
 
 @Module({
   imports: [AdminAuthModule],
@@ -14,8 +17,14 @@ import { ProductReviewsService } from './product-reviews.service';
     AdminReviewsController,
     ProductReviewsController,
     ReviewIdentityController,
+    ReviewSafetyController,
   ],
-  providers: [ReviewsService, ProductReviewsService],
+  providers: [
+    ReviewsService,
+    ProductReviewsService,
+    ReviewSafetyService,
+    ReviewerBansService,
+  ],
   exports: [ReviewsService],
 })
 export class ReviewsModule {}

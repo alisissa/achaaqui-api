@@ -56,6 +56,9 @@ export class MerchantDetailDto extends MerchantSummaryDto {
 }
 
 export class MerchantOfferItemDto {
+  declare regularPrice?: PriceDto | null;
+  declare saleEndsAt?: string | null;
+  declare promotion?: { text: string; endsAt: string | null } | null;
   declare id: string;
   declare merchantSku: string;
   declare price: PriceDto;

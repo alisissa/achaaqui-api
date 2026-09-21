@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Header, Param, Query } from '@nestjs/common';
 import { ApiNotFoundResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SlugParamDto } from '../common/dto/slug-param.dto';
@@ -24,6 +24,7 @@ export class MerchantsController {
   }
 
   @Get(':slug/offers')
+  @Header('Cache-Control', 'no-store')
   @ApiOkResponse({ type: MerchantOfferListResponseDto })
   @ApiNotFoundResponse({ description: 'Merchant not found.' })
   async offers(

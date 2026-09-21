@@ -43,13 +43,14 @@ export class ProductReviewsController {
   constructor(private readonly reviews: ProductReviewsService) {}
 
   @Get()
-  @Header('Cache-Control', 'no-store')
+  @Header('Cache-Control', 'private, no-store')
   @ApiOkResponse({ type: ProductReviewListDto })
   async list(
     @Param() params: SlugParamDto,
     @Query() query: PaginationQueryDto,
+    @Headers('x-review-token') token?: string,
   ): Promise<ProductReviewListDto> {
-    return await this.reviews.list(params.slug, query);
+    return await this.reviews.list(params.slug, query, token);
   }
 
   @Get('mine')

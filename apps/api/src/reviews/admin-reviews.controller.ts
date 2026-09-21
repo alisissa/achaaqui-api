@@ -25,6 +25,12 @@ import {
   UpdateReviewStatusDto,
 } from './reviews.dto';
 import { ReviewsService } from './reviews.service';
+import {
+  ResolveReportsDto,
+  ReviewSafetyResultDto,
+  SetReviewerAccessDto,
+} from './review-safety.dto';
+import { ReviewerBansService } from './reviewer-bans.service';
 
 @ApiTags('admin reviews')
 @ApiBearerAuth('admin-key')
@@ -32,7 +38,19 @@ import { ReviewsService } from './reviews.service';
 @UseGuards(AdminApiKeyGuard)
 @Controller('admin/reviews')
 export class AdminReviewsController {
-  constructor(private readonly reviewsService: ReviewsService) {}
+  constructor(
+    private readonly reviewsService: ReviewsService,
+    private readonly reviewerBans: ReviewerBansService,
+  ) {}
+
+  @Patch(':id/reviewer-access')
+  async setReviewerAccess(
+    @ActorId() actorId: string,
+    @Param() params: IdParamDto,
+    @Body() input: SetReviewerAccessDto,
+  ): Promise<ReviewSafetyResultDto> {
+    return await this.reviewerBans.setAccess(params.id, input, actorId);
+  }
 
   @Get('summary')
   @ApiOkResponse({ type: AdminReviewSummaryDto })
@@ -57,5 +75,18 @@ export class AdminReviewsController {
     @Body() input: UpdateReviewStatusDto,
   ): Promise<AdminReviewItemDto> {
     return await this.reviewsService.moderate(params.id, input, actorId);
+  }
+
+  @Patch(':id/reports')
+  async resolveReports(
+    @ActorId() actorId: string,
+    @Param() params: IdParamDto,
+    @Body() input: ResolveReportsDto,
+  ): Promise<ReviewSafetyResultDto> {
+    return await this.reviewsService.resolveReports(
+      params.id,
+      input.reportIds,
+      actorId,
+    );
   }
 }

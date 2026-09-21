@@ -1,5 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  COMMERCIAL_SELECT,
+  effectivePrice,
+  publicCommercial,
+} from '../commercial/offer-pricing';
+import { searchCatalog } from './catalog-search';
+import {
   type SearchClientContext,
   SearchAnalyticsService,
 } from '../analytics/search-analytics.service';
@@ -42,6 +48,7 @@ const PRODUCT_CARD_SELECT = {
   offers: {
     where: { active: true, merchant: { active: true } },
     select: {
+      ...COMMERCIAL_SELECT,
       price: true,
       currency: true,
       availability: true,
@@ -68,6 +75,7 @@ const PRODUCT_DETAIL_SELECT = {
   offers: {
     where: { active: true, merchant: { active: true } },
     select: {
+      ...COMMERCIAL_SELECT,
       id: true,
       price: true,
       currency: true,
@@ -111,6 +119,7 @@ export function orderedOffers<
     price: Prisma.Decimal;
   },
 >(offers: readonly T[]): T[] {
+  const now = new Date();
   return [...offers].sort((first, second) => {
     const availabilityDifference =
       availabilityRank(first.availability) -
@@ -119,7 +128,7 @@ export function orderedOffers<
     const currencyDifference = first.currency.localeCompare(second.currency);
     return currencyDifference !== 0
       ? currencyDifference
-      : first.price.comparedTo(second.price);
+      : effectivePrice(first, now).comparedTo(effectivePrice(second, now));
   });
 }
 
@@ -135,7 +144,7 @@ export function lowestPricesByCurrency<
     if (!lowest.has(offer.currency)) lowest.set(offer.currency, offer);
   }
   return [...lowest.values()].map((offer) => ({
-    amount: offer.price.toString(),
+    amount: effectivePrice(offer).toString(),
     currency: offer.currency,
   }));
 }
@@ -159,18 +168,28 @@ export class ProductsService {
     query: ProductListQueryDto,
     searchContext: SearchClientContext,
   ): Promise<ProductListResponseDto> {
-    const where = this.productWhere(query);
+    const search = query.q?.trim()
+      ? await searchCatalog(this.prisma, query)
+      : null;
+    const where = this.productWhere({ ...query, q: undefined });
+    if (search) where.id = { in: search.ids };
     const skip = (query.page - 1) * query.pageSize;
     const [total, products] = await Promise.all([
-      this.prisma.product.count({ where }),
+      search
+        ? Promise.resolve(search.total)
+        : this.prisma.product.count({ where }),
       this.prisma.product.findMany({
         where,
-        skip,
+        skip: search ? 0 : skip,
         take: query.pageSize,
         orderBy: this.productOrder(query.sort),
         select: PRODUCT_CARD_SELECT,
       }),
     ]);
+    if (search) {
+      const rank = new Map(search.ids.map((id, index) => [id, index]));
+      products.sort((a, b) => (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0));
+    }
 
     const ratings = await this.reviewsService.productRatings(
       products.map((product) => product.id),
@@ -335,14 +354,15 @@ export class ProductsService {
   ): Prisma.ProductOrderByWithRelationInput[] {
     switch (sort) {
       case ProductSort.RECENT:
-        return [{ createdAt: 'desc' }, { name: 'asc' }];
+        return [{ createdAt: 'desc' }, { name: 'asc' }, { id: 'asc' }];
       case ProductSort.POPULAR:
-        return [{ popularityScore: 'desc' }, { name: 'asc' }];
+        return [{ popularityScore: 'desc' }, { name: 'asc' }, { id: 'asc' }];
       case ProductSort.FEATURED:
         return [
           { featured: 'desc' },
           { popularityScore: 'desc' },
           { name: 'asc' },
+          { id: 'asc' },
         ];
     }
   }
@@ -389,7 +409,11 @@ export class ProductsService {
         id: offer.id,
         merchantSku: '', // Retained for installed-client compatibility; internal identifier is private.
         merchant: offer.merchant,
-        price: { amount: offer.price.toString(), currency: offer.currency },
+        price: {
+          amount: effectivePrice(offer).toString(),
+          currency: offer.currency,
+        },
+        ...publicCommercial(offer),
         availability: offer.availability,
         stockQuantity: null, // Public availability only, never exact inventory.
         freshness: this.freshnessService.forOffer(

@@ -34,8 +34,10 @@ export class ResolvePhotoRowDto extends PhotoPreviewVersionDto {
   declare input: PhotoRowInputDto;
   @IsBoolean() declare skip: boolean;
 }
-export class CommitPhotoImportDto extends CommitImportDto {
+export class CommitMerchantImportDto extends CommitImportDto {
   @Matches(/^[a-f0-9]{64}$/) declare expectedPreviewToken: string;
   @Equals(true) declare confirmed: boolean;
+}
+export class CommitPhotoImportDto extends CommitMerchantImportDto {
   @Equals(true) declare reviewedPhoto: boolean;
 }
