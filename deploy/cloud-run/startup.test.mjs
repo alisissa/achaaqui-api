@@ -92,7 +92,7 @@ test('every compiled admin HTTP operation rejects unauthorized identities', asyn
       .flatMap(([path, methods]) => Object.keys(methods)
         .filter(method => ['get', 'post', 'patch', 'delete', 'put'].includes(method))
         .map(method => ({ method: method.toUpperCase(), path: path.replace(/\{[^}]+\}/g, '11111111-1111-4111-8111-111111111111') })));
-    assert.equal(operations.length, 21, 'Review coverage when an admin route is added');
+    assert.equal(operations.length, 27, 'Review coverage when an admin route is added');
     // Credential management is deliberately omitted from public Swagger, but
     // remains covered by exactly the same real administrator guard tests.
     for (const method of ['GET', 'POST', 'PATCH']) operations.push({ method, path: '/v1/admin/merchants/11111111-1111-4111-8111-111111111111/login' });
