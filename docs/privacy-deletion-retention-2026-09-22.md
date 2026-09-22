@@ -1,6 +1,7 @@
 # Privacy release: implementation and Claude review
 
-Status: **local candidate, not deployed**. No production records were deleted,
+Status: **committed and pushed; production rollout pending backup approval**.
+See the 22 September release checkpoint below. No production records were deleted,
 no migration applied to Neon, no scheduler/IAM resources created, and no native
 build cut in this slice. Website draft and noindex stay until publication.
 
@@ -214,3 +215,52 @@ quota receipts, captured merchant actors after login deletion, job-only config,
 mobile confirmation/cache/error behavior, and policy claims versus actual
 deployment. Distinguish this local candidate from production, and existing
 photo-consent changes from this turn. No further feature expansion is proposed.
+
+## Release checkpoint — 22 September 2026
+
+- Reviewed API source `634cd51aa72a3cfc8d3d2b27390b55e6db8281c3` and mobile
+  source `1d20cb6695b3ea175e99d1618686378facf6d1f2` were committed on release
+  branches, fast-forwarded into their separate `main` branches and pushed.
+  Admin was unchanged. Static website is not a Git repository.
+- Fresh checks passed: API 164 unit/security + 120 disposable PostgreSQL 18.6
+  integration tests, lint/typecheck, 6 deployment and 8 dependency checks;
+  mobile 60 tests and lint/typecheck. No production database used for tests.
+- Built `achaaqui-api:privacy-634cd51` for Linux/amd64. Local OCI index
+  `sha256:5b0ff8a41591cf22026850623e0b7d2bd9fc77a9e1ca57a40dc8a82b35dabcf7`;
+  platform manifest
+  `sha256:3bda3b5a11313dee82216c644ddc2ce873e4f141ef891d3c4320868a16baf834`.
+  These are local artifacts, not registry-push or deployment evidence.
+- Exact packaged-image smoke passed against disposable PostgreSQL: public
+  reads, 27 denied admin operations, merchant authorization and unauthorized
+  review-deletion rejection; enabled retention job exits successfully with
+  counts only, disabled job fails with a redacted message. Non-root runtime,
+  no bundled environment files and zero external OCR calls verified. Removed
+  only the labeled test containers/network; volume inventory unchanged.
+- iOS 0.1.0 (10) archived and exported locally. IPA SHA-256
+  `593ed5965bf697fe7b37411cf3953c9860cd28bd6c989ea88b15d18d9ef23b8b`.
+  Verified distribution signature/team/bundle, production API, demo mode off,
+  compiled consent/deletion strings, camera/photo permissions and no microphone
+  permission. Internal TestFlight only, not public-submission eligible.
+  **Not uploaded**; no physical-device QA claimed.
+- Read-only production preflight: API `achaaqui-api-00011-797`, admin
+  `achaaqui-admin-00007-4ns`; API min 1/max 1, admin min 0/max 1. Both still use
+  Firebase admin auth. Ten applied Neon migration checksums match source;
+  counts: 23 products, 3 merchants, 2 reviews, 1 merchant login, 7 imports.
+  Eight search events, none older than 90 days. No rows were changed.
+- Cloud Logging retention readback: `_Default` 30 days, `_Required` 400 days.
+  EUR 20 alert budget remains; this is not a hard spending ceiling. Retention
+  identities/job are absent and Scheduler API is disabled.
+- The approval system rejected the full database export because this new
+  sensitive destination had not been explicitly approved. Requested permission
+  for `/private/tmp/achaaqui-privacy-release-20260922.ujxGs2/neon-before.dump`
+  with owner-only permissions and isolated restore verification. No backup,
+  production SQL, registry push, deployment, job/schedule or publication occurred.
+  Resume at backup approval, then follow the reviewed release order.
+- Firebase Hosting release metadata request returned HTTP 403; resolve before
+  publication. Provider/backup-policy gates above remain. Mistral's current
+  [ZDR documentation](https://docs.mistral.ai/admin/monitor-comply/zero-data-retention)
+  confirms that training opt-out is separate from ZDR, not evidence this
+  organization's OCR calls have zero retention.
+- The historical protected local Docker volume was not found in the current
+  `desktop-linux` inventory. No replacement was created and no persistent volume
+  was removed. Release tests used explicitly labeled disposable tmpfs containers.
