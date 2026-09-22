@@ -304,14 +304,25 @@ model ReviewReport {
 
 model ReviewBlock {
   id                  String @id @default(uuid()) @db.Uuid
-  reviewId            String @db.Uuid
+  reviewId            String? @db.Uuid
   blockerHash         String @db.Char(64)
   blockedReviewerHash String? @db.Char(64)
   createdAt           DateTime @default(now()) @db.Timestamptz(3)
-  review              CustomerReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  review              CustomerReview? @relation(fields: [reviewId], references: [id], onDelete: SetNull)
 
   @@unique([blockerHash, reviewId])
   @@index([reviewId])
+}
+
+// Short-lived anti-abuse receipt: no rating, comment, product or review id.
+// Deleting/reposting must not reset the hourly submission quota.
+model ReviewDeletionReceipt {
+  id           String @id @default(uuid()) @db.Uuid
+  reviewerHash String @db.Char(64)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([reviewerHash, createdAt])
+  @@index([createdAt])
 }
 
 model SearchEvent {

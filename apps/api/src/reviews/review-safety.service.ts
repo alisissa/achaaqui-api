@@ -26,6 +26,7 @@ export class ReviewSafetyService {
     return await this.prisma.$transaction(async (tx) => {
       // Serializes quotas and duplicate requests for this identity, not other customers.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`review-safety:${hash}`}, 0))`;
+      await tx.$queryRaw`SELECT id FROM "CustomerReview" WHERE id=${id}::uuid FOR SHARE`;
       const review = await tx.customerReview.findFirst({
         where: {
           id,

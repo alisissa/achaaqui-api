@@ -155,6 +155,24 @@ run(
     beforeEach(() => limiter.storage.clear());
     afterAll(async () => {
       if (prisma) {
+        await prisma.reviewDeletionReceipt.deleteMany({
+          where: { reviewerHash: { in: banHashes } },
+        });
+        await prisma.reviewBlock.deleteMany({
+          where: {
+            OR: [
+              { blockedReviewerHash: { in: banHashes } },
+              {
+                review: {
+                  OR: [
+                    { product: { slug: { startsWith: prefix } } },
+                    { merchantProductId: offerId },
+                  ],
+                },
+              },
+            ],
+          },
+        });
         await prisma.reviewerBan.deleteMany({
           where: { reviewerHash: { in: banHashes } },
         });
@@ -189,6 +207,143 @@ run(
       expect(await (await mine(identity.token)).json()).toEqual({
         review: null,
       });
+    });
+    it('deletes only the authenticated author review after confirmation, idempotently, without stale retries deleting a replacement', async () => {
+      const owner = randomBytes(32).toString('hex');
+      const other = randomBytes(32).toString('hex');
+      const hash = reviewIdentityHash(owner);
+      banHashes.push(hash);
+      const created = await reviews.create(prefix, owner, {
+        rating: 5,
+        comment: 'Withdrawal test',
+      });
+      const remove = (
+        identity: string | undefined,
+        confirmed = true,
+        slug = prefix,
+      ): Promise<Response> =>
+        fetch(`${base}/products/${slug}/reviews/mine`, {
+          method: 'DELETE',
+          headers: headers(identity),
+          body: JSON.stringify({ reviewId: created.id, confirmed }),
+        });
+      expect((await remove(undefined)).status).toBe(401);
+      expect((await remove(owner, false)).status).toBe(400);
+      expect((await remove(other)).status).toBe(204);
+      expect((await remove(owner, true, 'another-product')).status).toBe(204);
+      expect(
+        await prisma.customerReview.count({ where: { id: created.id } }),
+      ).toBe(1);
+      const before =
+        (await aggregates.productRatings([productId])).get(productId)?.count ??
+        0;
+      const results = await Promise.all([remove(owner), remove(owner)]);
+      expect(results.map((r) => r.status)).toEqual([204, 204]);
+      expect(results[0]?.headers.get('cache-control')).toBe(
+        'private, no-store',
+      );
+      expect(
+        await prisma.customerReview.count({ where: { id: created.id } }),
+      ).toBe(0);
+      expect(
+        await prisma.reviewDeletionReceipt.count({
+          where: { reviewerHash: hash },
+        }),
+      ).toBe(1);
+      expect(
+        (await aggregates.productRatings([productId])).get(productId)?.count ??
+          0,
+      ).toBe(before - 1);
+      const replacement = await reviews.create(prefix, owner, { rating: 4 });
+      expect((await remove(owner)).status).toBe(204);
+      expect(
+        await prisma.customerReview.count({ where: { id: replacement.id } }),
+      ).toBe(1);
+      await reviews.deleteMine(prefix, owner, replacement.id);
+    });
+
+    it('preserves author blocks and bans when hidden reviews are deleted, even on inactive products', async () => {
+      const owner = randomBytes(32).toString('hex');
+      const blocker = randomBytes(32).toString('hex');
+      const hash = reviewIdentityHash(owner);
+      banHashes.push(hash);
+      const created = await reviews.create(prefix, owner, { rating: 4 });
+      await new ReviewSafetyService(prisma, config).save(created.id, blocker);
+      await prisma.reviewerBan.create({
+        data: {
+          reviewerHash: hash,
+          active: true,
+          revision: randomUUID(),
+          updatedBy: 'test-admin',
+        },
+      });
+      await prisma.customerReview.update({
+        where: { id: created.id },
+        data: { status: 'REJECTED' },
+      });
+      await prisma.product.update({
+        where: { id: productId },
+        data: { status: 'INACTIVE' },
+      });
+      try {
+        await reviews.deleteMine(prefix, owner, created.id);
+      } finally {
+        await prisma.product.update({
+          where: { id: productId },
+          data: { status: 'ACTIVE' },
+        });
+      }
+      expect(
+        await prisma.reviewBlock.findFirst({
+          where: { blockerHash: reviewIdentityHash(blocker) },
+          select: { reviewId: true, blockedReviewerHash: true },
+        }),
+      ).toEqual({ reviewId: null, blockedReviewerHash: hash });
+      await expect(
+        reviews.create(prefix, owner, { rating: 2 }),
+      ).rejects.toThrow('cannot submit');
+      expect(
+        (await prisma.reviewerBan.findUnique({ where: { reviewerHash: hash } }))
+          ?.active,
+      ).toBe(true);
+    });
+
+    it('does not let delete and repost reset the hourly submission quota', async () => {
+      const owner = randomBytes(32).toString('hex');
+      const hash = reviewIdentityHash(owner);
+      banHashes.push(hash);
+      for (let i = 0; i < 10; i++) {
+        const row = await reviews.create(prefix, owner, { rating: 3 });
+        await reviews.deleteMine(prefix, owner, row.id);
+      }
+      await expect(
+        reviews.create(prefix, owner, { rating: 3 }),
+      ).rejects.toThrow('Please wait');
+    });
+    it('serializes deletion with report/block writes without dangling references or database errors', async () => {
+      const safety = new ReviewSafetyService(prisma, config);
+      for (const report of [undefined, { reason: 'ABUSE' as const }]) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const owner = randomBytes(32).toString('hex');
+          const viewer = randomBytes(32).toString('hex');
+          banHashes.push(reviewIdentityHash(owner));
+          const row = await reviews.create(prefix, owner, { rating: 3 });
+          const results = await Promise.allSettled([
+            reviews.deleteMine(prefix, owner, row.id),
+            safety.save(row.id, viewer, report),
+          ]);
+          expect(results[0]?.status).toBe('fulfilled');
+          if (results[1]?.status === 'rejected')
+            expect(results[1].reason).toMatchObject({ status: 404 });
+          expect(
+            await prisma.customerReview.count({ where: { id: row.id } }),
+          ).toBe(0);
+          expect(
+            await prisma.reviewReport.count({ where: { reviewId: row.id } }),
+          ).toBe(0);
+          await safety.clearBlocks(viewer);
+        }
+      }
     });
     it('publishes stars/comment immediately, keeps identity private and preserves legacy ratings', async () => {
       const response = await submit(token, {

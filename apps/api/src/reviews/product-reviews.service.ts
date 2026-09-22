@@ -96,7 +96,11 @@ export class ProductReviewsService {
     );
     const where: Prisma.CustomerReviewWhereInput = {
       status: 'PUBLISHED',
-      id: { notIn: blocks.map((block) => block.reviewId) },
+      id: {
+        notIn: blocks.flatMap((block) =>
+          block.reviewId ? [block.reviewId] : [],
+        ),
+      },
       AND: [
         {
           OR: [
@@ -190,7 +194,13 @@ export class ProductReviewsService {
               createdAt: { gte: new Date(Date.now() - 3_600_000) },
             },
           });
-          if (recent >= 10)
+          const deletedRecently = await tx.reviewDeletionReceipt.count({
+            where: {
+              reviewerHash,
+              createdAt: { gte: new Date(Date.now() - 3_600_000) },
+            },
+          });
+          if (recent + deletedRecently >= 10)
             throw new HttpException(
               'Please wait before submitting another review.',
               429,
@@ -218,5 +228,32 @@ export class ProductReviewsService {
       }
       throw error;
     }
+  }
+
+  async deleteMine(
+    slug: string,
+    token: string | undefined,
+    reviewId: string,
+  ): Promise<void> {
+    this.requireEnabled();
+    const reviewerHash = reviewIdentityHash(token);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`review:${reviewerHash}`}, 0))`;
+      // Allow withdrawal of hidden reviews and reviews on inactive products,
+      // including by banned authors. Never accept a client-supplied owner hash.
+      const review = await tx.customerReview.findFirst({
+        where: { id: reviewId, reviewerHash, product: { slug } },
+        select: { id: true },
+      });
+      // Idempotent and non-enumerating; a stale retry cannot delete a newer review.
+      if (!review) return;
+      await tx.reviewDeletionReceipt.create({ data: { reviewerHash } });
+      await tx.reviewBlock.deleteMany({
+        where: { reviewId: review.id, blockedReviewerHash: null },
+      });
+      await tx.customerReview.delete({ where: { id: review.id } });
+      // Reports cascade; author blocks survive through the nullable FK.
+      // Legacy per-review blocks without an author have nothing left to block.
+    });
   }
 }

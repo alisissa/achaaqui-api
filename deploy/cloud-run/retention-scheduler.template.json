@@ -1,0 +1,18 @@
+{
+  "name": "projects/achaaqui-web/locations/us-east4/jobs/achaaqui-retention-daily",
+  "description": "Daily analytics and short-lived deletion-receipt cleanup",
+  "schedule": "0 3 * * *",
+  "timeZone": "America/Sao_Paulo",
+  "attemptDeadline": "60s",
+  "retryConfig": { "retryCount": 1, "minBackoffDuration": "60s", "maxBackoffDuration": "60s", "maxDoublings": 0 },
+  "httpTarget": {
+    "uri": "https://run.googleapis.com/v2/projects/achaaqui-web/locations/us-east4/jobs/achaaqui-retention:run",
+    "httpMethod": "POST",
+    "headers": { "Content-Type": "application/json" },
+    "body": "e30=",
+    "oauthToken": {
+      "serviceAccountEmail": "achaaqui-retention-trigger@achaaqui-web.iam.gserviceaccount.com",
+      "scope": "https://www.googleapis.com/auth/cloud-platform"
+    }
+  }
+}

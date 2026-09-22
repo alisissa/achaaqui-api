@@ -1,6 +1,8 @@
 import { Transform } from 'class-transformer';
 import {
   IsInt,
+  Equals,
+  IsUUID,
   IsOptional,
   IsString,
   Max,
@@ -23,6 +25,14 @@ export class CreateProductReviewDto {
   @IsString()
   @MaxLength(1000)
   comment?: string;
+}
+
+export class DeleteOwnReviewDto {
+  @IsUUID()
+  declare reviewId: string;
+
+  @Equals(true)
+  declare confirmed: true;
 }
 
 export class ProductReviewDto {

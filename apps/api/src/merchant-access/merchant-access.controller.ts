@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   HttpCode,
@@ -19,6 +20,7 @@ import { MerchantAccessGuard } from './merchant-access.guard';
 import { MerchantAccessService } from './merchant-access.service';
 import {
   MerchantLoginDto,
+  DeleteMerchantLoginDto,
   MerchantLoginStatusDto,
   SetMerchantLoginDto,
   type MerchantLoginResponseDto,
@@ -62,6 +64,17 @@ export class MerchantAuthController {
 @Controller('admin/merchants/:merchantId/login')
 export class AdminMerchantLoginController {
   constructor(private readonly access: MerchantAccessService) {}
+
+  @Delete()
+  @HttpCode(204)
+  @Header('Cache-Control', 'private, no-store')
+  async deleteLogin(
+    @Param() params: MerchantIdParamDto,
+    @Body() input: DeleteMerchantLoginDto,
+    @ActorId() actorId: string,
+  ): Promise<void> {
+    await this.access.deleteLogin(params.merchantId, input, actorId);
+  }
 
   @Get()
   async status(

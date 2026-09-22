@@ -1,0 +1,34 @@
+# REVIEW TEMPLATE ONLY. Replace immutable image and secret version after approval.
+# Dedicated runtime needs accessor only on the existing database secret.
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: achaaqui-retention
+spec:
+  template:
+    spec:
+      taskCount: 1
+      parallelism: 1
+      template:
+        spec:
+          serviceAccountName: achaaqui-retention@achaaqui-web.iam.gserviceaccount.com
+          timeoutSeconds: '300'
+          maxRetries: 1
+          containers:
+            - image: us-east4-docker.pkg.dev/achaaqui-web/achaaqui/api@sha256:REPLACE_REVIEWED_DIGEST
+              command: ['node']
+              args: ['apps/api/dist/analytics/retention-job.js']
+              resources:
+                limits:
+                  cpu: '1'
+                  memory: 512Mi
+              env:
+                - name: NODE_ENV
+                  value: production
+                - name: RETENTION_JOB_ENABLED
+                  value: 'true'
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: achaaqui-api-database-url
+                      key: REPLACE_PINNED_SECRET_VERSION

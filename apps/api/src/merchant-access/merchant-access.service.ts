@@ -1,6 +1,7 @@
 import {
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { PasswordService } from './password.service';
 import type { MerchantActor } from './merchant-actor';
 import type {
   MerchantLoginDto,
+  DeleteMerchantLoginDto,
   MerchantLoginResponseDto,
   MerchantSessionDto,
   SetMerchantLoginDto,
@@ -26,6 +28,7 @@ export const hashSessionToken = (token: string): string =>
 
 @Injectable()
 export class MerchantAccessService {
+  private readonly logger = new Logger(MerchantAccessService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
@@ -208,11 +211,54 @@ export class MerchantAccessService {
 
   async status(
     merchantId: string,
-  ): Promise<{ username: string; active: boolean } | null> {
-    return await this.prisma.merchantUser.findUnique({
+  ): Promise<{
+    id: string;
+    username: string;
+    active: boolean;
+    updatedAt: string;
+  } | null> {
+    const user = await this.prisma.merchantUser.findUnique({
       where: { merchantId },
-      select: { username: true, active: true },
+      select: { id: true, username: true, active: true, updatedAt: true },
     });
+    return user ? { ...user, updatedAt: user.updatedAt.toISOString() } : null;
+  }
+
+  async deleteLogin(
+    merchantId: string,
+    input: DeleteMerchantLoginDto,
+    actorId: string,
+  ): Promise<void> {
+    if (input.confirmed !== true || input.ownershipVerified !== true)
+      throw new ConflictException(
+        'Verify ownership and confirm deletion first.',
+      );
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`merchant-login:${merchantId}`}, 0))`;
+      await tx.$queryRaw`SELECT id FROM "MerchantUser" WHERE "merchantId"=${merchantId}::uuid FOR UPDATE`;
+      const user = await tx.merchantUser.findUnique({
+        where: { merchantId },
+        select: { id: true, updatedAt: true },
+      });
+      if (!user) return false;
+      if (
+        user.id !== input.expectedUserId ||
+        user.updatedAt.toISOString() !== input.expectedUpdatedAt
+      )
+        throw new ConflictException(
+          'Merchant access changed. Verify the request again.',
+        );
+      // Session FK cascades. Shared store/catalog/history are not account credentials.
+      await tx.merchantUser.delete({ where: { id: user.id } });
+      return true;
+    });
+    if (deleted)
+      this.logger.log({
+        event: 'merchant_login_deleted',
+        merchantId,
+        actorId,
+        requestId: input.requestId,
+      });
   }
 
   async setActive(

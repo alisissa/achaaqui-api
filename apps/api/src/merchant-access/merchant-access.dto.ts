@@ -1,5 +1,13 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsString, IsUUID, Length, Matches } from 'class-validator';
+import {
+  Equals,
+  IsISO8601,
+  IsBoolean,
+  IsString,
+  IsUUID,
+  Length,
+  Matches,
+} from 'class-validator';
 
 export class MerchantLoginDto {
   @Transform(({ value }: { value: unknown }) =>
@@ -25,6 +33,24 @@ export class MerchantLoginStatusDto {
   declare active: boolean;
 }
 
+export class DeleteMerchantLoginDto {
+  @IsUUID()
+  declare expectedUserId: string;
+
+  @IsISO8601({ strict: true })
+  declare expectedUpdatedAt: string;
+
+  // Opaque identifier for the privately recorded, verified request; no email/text.
+  @IsUUID()
+  declare requestId: string;
+
+  @Equals(true)
+  declare ownershipVerified: true;
+
+  @Equals(true)
+  declare confirmed: true;
+}
+
 export class OwnOfferParamDto {
   @IsUUID()
   declare offerId: string;
@@ -41,5 +67,10 @@ export interface MerchantLoginResponseDto extends MerchantSessionDto {
 }
 
 export interface MerchantLoginConfigurationDto {
-  login: { username: string; active: boolean } | null;
+  login: {
+    id: string;
+    username: string;
+    active: boolean;
+    updatedAt: string;
+  } | null;
 }

@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Headers,
@@ -15,6 +16,7 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { SlugParamDto } from '../common/dto/slug-param.dto';
 import {
   CreateProductReviewDto,
+  DeleteOwnReviewDto,
   OwnProductReviewDto,
   OwnProductReviewResponseDto,
   ProductReviewListDto,
@@ -41,6 +43,18 @@ export class ReviewIdentityController {
 @Controller('products/:slug/reviews')
 export class ProductReviewsController {
   constructor(private readonly reviews: ProductReviewsService) {}
+
+  @Delete('mine')
+  @HttpCode(204)
+  @Header('Cache-Control', 'private, no-store')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async deleteMine(
+    @Param() params: SlugParamDto,
+    @Headers('x-review-token') token: string | undefined,
+    @Body() input: DeleteOwnReviewDto,
+  ): Promise<void> {
+    await this.reviews.deleteMine(params.slug, token, input.reviewId);
+  }
 
   @Get()
   @Header('Cache-Control', 'private, no-store')

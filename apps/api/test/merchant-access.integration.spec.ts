@@ -231,7 +231,12 @@ run('merchant HTTP access and transaction isolation', () => {
     ).toBe(201);
     const configured = await call(path, 'GET', undefined, adminToken);
     expect(await configured.json()).toEqual({
-      login: { username, active: true },
+      login: {
+        id: expect.any(String) as string,
+        username,
+        active: true,
+        updatedAt: expect.any(String) as string,
+      },
     });
     const loggedIn = await call(
       '/merchant/auth/login',
@@ -492,6 +497,78 @@ run('merchant HTTP access and transaction isolation', () => {
         beforeLogout,
       ),
     ).rejects.toMatchObject({ status: 401 });
+  });
+
+  it('requires verified admin confirmation and a fresh revision to delete credentials, not store data', async () => {
+    const login = await access.login({ username: `${prefix}-fresh`, password });
+    const actor = await access.authenticate(login.token);
+    const state = await access.status(fresh);
+    expect(state).not.toBeNull();
+    const body = {
+      expectedUserId: state?.id,
+      expectedUpdatedAt: state?.updatedAt,
+      requestId: randomUUID(),
+      ownershipVerified: true,
+      confirmed: true,
+    };
+    const path = `/admin/merchants/${fresh}/login`;
+    expect((await call(path, 'DELETE', body, null)).status).toBe(401);
+    expect((await call(path, 'DELETE', body, login.token)).status).toBe(401);
+    expect(
+      (
+        await call(
+          path,
+          'DELETE',
+          { ...body, ownershipVerified: false },
+          adminToken,
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (await call(path, 'DELETE', { ...body, confirmed: false }, adminToken))
+        .status,
+    ).toBe(400);
+    expect(
+      (
+        await call(
+          path,
+          'DELETE',
+          { ...body, expectedUserId: randomUUID() },
+          adminToken,
+        )
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await call(
+          path,
+          'DELETE',
+          { ...body, expectedUpdatedAt: new Date(0).toISOString() },
+          adminToken,
+        )
+      ).status,
+    ).toBe(409);
+    expect((await call(path, 'DELETE', body, adminToken)).status).toBe(204);
+    expect(await access.status(fresh)).toBeNull();
+    expect(
+      await prisma.merchantSession.count({ where: { userId: actor.userId } }),
+    ).toBe(0);
+    await expect(access.authenticate(login.token)).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(
+      offers.create(fresh, input(), `merchant:${actor.userId}`, actor),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(await prisma.merchant.count({ where: { id: fresh } })).toBe(1);
+    expect(await prisma.product.count({ where: { id: productId } })).toBe(1);
+    expect((await call(path, 'DELETE', body, adminToken)).status).toBe(204);
+    await access.provision(
+      fresh,
+      { username: `${prefix}-fresh`, password },
+      'firebase:test-admin',
+    );
+    expect((await call(path, 'DELETE', body, adminToken)).status).toBe(409);
+    expect(await access.status(fresh)).not.toBeNull();
   });
 
   it('persists account attempt limits and uses the same failure for unknown usernames', async () => {

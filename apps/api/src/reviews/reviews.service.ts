@@ -337,6 +337,13 @@ export class ReviewsService {
 
         if (existing.reviewerHash) {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`review:${existing.reviewerHash}`}, 0))`;
+          if (
+            !(await tx.customerReview.findUnique({
+              where: { id },
+              select: { id: true },
+            }))
+          )
+            throw new NotFoundException('Review not found.');
           if (input.status === ReviewStatus.PUBLISHED)
             await assertReviewerCanPost(tx, existing.reviewerHash, true);
         }
