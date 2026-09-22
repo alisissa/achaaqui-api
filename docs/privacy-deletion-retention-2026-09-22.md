@@ -1,6 +1,6 @@
 # Privacy release: implementation and Claude review
 
-Status: **SQL and API deployed; retention job and policy publication incomplete**.
+Status: **SQL/API deployed; daily retention live and verified; policy unpublished**.
 See the production checkpoint below. The earlier implementation and preparation
 sections are historical. Website draft and noindex remain until publication.
 
@@ -103,7 +103,7 @@ is not evidence that restoration preserves privacy decisions. Test this on a
 disposable restore before relying on it. Deleting old backups remains a separately
 approved action with exact paths; no wildcard or recursive deletion instructions.
 
-## Retention job rollout (NOT executed)
+## Retention job rollout procedure (completed; evidence below)
 
 1. Review SQL, back up under separately approved handling, apply migration as
    raw SQL before API/job deployment. Do not use `prisma migrate` on production.
@@ -135,8 +135,8 @@ approved action with exact paths; no wildcard or recursive deletion instructions
    Job/scheduler may incur usage; existing budgets are alerts, not hard caps.
 
 Google's official [Jobs + Scheduler guide](https://docs.cloud.google.com/run/docs/execute/jobs-on-schedule)
-supports the OAuth POST to the v2 jobs `:run` endpoint. This is a candidate,
-not a claim the templates were applied or cloud schema/IAM tested live.
+supports the OAuth POST to the v2 jobs `:run` endpoint. The checked-in files remain
+templates; the completed deployment and verification are recorded below.
 
 ## Policy evidence and remaining publication gates
 
@@ -303,3 +303,37 @@ photo-consent changes from this turn. No further feature expansion is proposed.
 - Internal TestFlight build 10 upload started after API deployment. Reconcile
   Apple upload outcome before retrying. Public App Store submission is not part
   of this release. Privacy/support pages remain unpublished; no DNS changes.
+
+## Cleanup completion — 22 September, 19:04 UTC
+
+- Resolved the failed dry-run: Cloud Run v2 CreateJob requires an empty/omitted
+  `job.name` in the body; the target name is supplied by `jobId`. Corrected only
+  the private release helper and revalidated successfully (HTTP 200). No API
+  source, database schema, image, runtime flags or public endpoint changed.
+- Created `achaaqui-retention` in `achaaqui-web/us-east4`, pinned to the exact
+  API image recorded above and existing database-secret version 1. One task,
+  parallelism 1, 1 CPU/512 MiB, 300-second timeout and one task retry.
+- Manual execution `achaaqui-retention-25ssc` completed successfully at
+  `18:56:36Z`. Enabled the Cloud Scheduler API and created
+  `achaaqui-retention-daily`: `0 3 * * *`, `America/Sao_Paulo`, OAuth trigger
+  identity, 60-second dispatch deadline and one bounded retry.
+- Manually invoked the Scheduler itself. Its execution
+  `achaaqui-retention-lbldd` completed successfully at `19:00:58Z`; Scheduler
+  last-attempt status was successful. This verifies the Scheduler-to-job path,
+  not merely job creation. The first naturally scheduled daily run is still due.
+- Both runs logged only cleanup event and numeric deletion counts: zero expired
+  analytics and zero receipts removed. Read-only Neon verification found zero
+  overdue records; catalog/review/login/import counts and admin revision remained
+  unchanged. No production test fixtures or live reviews were deleted.
+- Final readback verified no user-managed keys or direct project roles for the
+  two identities; runtime access remains scoped to the database secret, trigger
+  `roles/run.invoker` remains scoped to this job only. No public invocation grant.
+  Runtime logs had zero error entries. The earlier rejected CreateJob validation
+  remains as an expected INVALID_ARGUMENT administrative audit entry.
+- Xcode confirmed build 10 upload success at `17:53:03Z` (`Uploaded AchaAqui`,
+  `EXPORT SUCCEEDED`). Third-party missing dSYM warnings did not block upload.
+  Apple processing/tester availability and physical iPhone QA remain unverified.
+- Privacy/support pages remain unpublished pending the provider/backup-policy
+  gates documented above and mobile availability verification. No App Store
+  submission, admin deployment, DNS or billing change. Check execution results
+  daily during the pilot; automated failure alerting is not configured.
