@@ -1,9 +1,8 @@
 # Privacy release: implementation and Claude review
 
-Status: **committed and pushed; production rollout pending backup approval**.
-See the 22 September release checkpoint below. No production records were deleted,
-no migration applied to Neon, no scheduler/IAM resources created, and no native
-build cut in this slice. Website draft and noindex stay until publication.
+Status: **SQL and API deployed; retention job and policy publication incomplete**.
+See the production checkpoint below. The earlier implementation and preparation
+sections are historical. Website draft and noindex remain until publication.
 
 ## Scope
 
@@ -264,3 +263,43 @@ photo-consent changes from this turn. No further feature expansion is proposed.
 - The historical protected local Docker volume was not found in the current
   `desktop-linux` inventory. No replacement was created and no persistent volume
   was removed. Release tests used explicitly labeled disposable tmpfs containers.
+
+## Production checkpoint — 22 September, after explicit backup approval
+
+- Owner approved the exact full-backup destination above, including merchant
+  authentication records. Saved 82,523 bytes with mode `0600` inside the private
+  directory; SHA-256
+  `a5136c1645c4fb1f36062757317b0c482263c69d0f14c90fbb652bf1dd91cae4`.
+  Restored successfully into a no-published-port PostgreSQL 18.6 tmpfs container,
+  disconnected its network before restoring real records, checked counts and
+  applied the reviewed migration to that restore. Removed only that temporary
+  restore container/data. The approved backup is retained, not deleted.
+- Applied only `20260922100000_privacy_deletion` as raw SQL at
+  `2026-09-22T17:34:31Z`, recording its reviewed checksum in migration history.
+  Transactional before/after checks confirmed existing records unchanged.
+  An earlier attempt rolled back before SQL because the verification helper
+  assumed every table had an `id`; the helper was corrected for hash-keyed tables.
+- Pushed the exact verified image above and confirmed both registry digests.
+  API `achaaqui-api-00012-r4s` is ready with 100% traffic; image-only change.
+  Runtime identity, Firebase auth, flags, secret versions, resources, min 1/max 1,
+  ingress and IAM are preserved. Admin stays `achaaqui-admin-00007-4ns` unchanged.
+- Live HTTPS health/readiness/categories/products/merchants/highlights/promotions
+  returned 200. Unauthenticated merchant access and admin login-deletion returned
+  401. Review deletion without an identity returned 401 with `private, no-store`.
+  No live review/login was deleted for smoke testing and no catalog data seeded.
+- Final read-only check at `17:47:43Z`: 11 completed migrations; 23 products,
+  3 merchants, 2 reviews, 1 merchant login, 7 imports and 0 deletion receipts.
+  No analytics older than 90 days or receipts older than 24 hours. No ERROR-or-
+  higher entries in the bounded new-API-revision log query. Not a load test or
+  authenticated physical-device workflow test.
+- Created keyless `achaaqui-retention` and `achaaqui-retention-trigger` identities.
+  Runtime added only to the existing database secret's accessor binding; existing
+  API access preserved. No new project-wide grants or service-account keys.
+  Cloud Run's job dry-run returned HTTP 400 before actual job creation, so no job
+  invoker binding or Scheduler creation was reached. Two attempts to inspect the
+  validation error were blocked by tool-approval timeouts before execution.
+  Requested permission to retry the check; **daily cleanup is not operating**.
+  Do not claim otherwise or publish the policy's daily-cleanup sentence yet.
+- Internal TestFlight build 10 upload started after API deployment. Reconcile
+  Apple upload outcome before retrying. Public App Store submission is not part
+  of this release. Privacy/support pages remain unpublished; no DNS changes.
