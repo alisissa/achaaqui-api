@@ -230,6 +230,12 @@ photo-consent changes from this turn. No further feature expansion is proposed.
   platform manifest
   `sha256:3bda3b5a11313dee82216c644ddc2ce873e4f141ef891d3c4320868a16baf834`.
   These are local artifacts, not registry-push or deployment evidence.
+- Exact packaged-image smoke passed against disposable PostgreSQL: public
+  reads, 27 denied admin operations, merchant authorization and unauthorized
+  review-deletion rejection; enabled retention job exits successfully with
+  counts only, disabled job fails with a redacted message. Non-root runtime,
+  no bundled environment files and zero external OCR calls verified. Removed
+  only the labeled test containers/network; volume inventory unchanged.
 - iOS 0.1.0 (10) archived and exported locally. IPA SHA-256
   `593ed5965bf697fe7b37411cf3953c9860cd28bd6c989ea88b15d18d9ef23b8b`.
   Verified distribution signature/team/bundle, production API, demo mode off,
