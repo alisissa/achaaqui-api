@@ -27,6 +27,7 @@ import {
 import { CANONICAL_IMPORT_FIELDS } from './import-normalization';
 import {
   PhotoOcrService,
+  PHOTO_OCR_MODEL,
   PHOTO_REVIEW_WARNING,
   PHOTO_UNCERTAIN_ERROR,
 } from './photo-ocr.service';
@@ -106,6 +107,10 @@ export class PhotoImportService {
     actor: MerchantActor,
     file: UploadedCsvFile | undefined,
   ): Promise<AdminImportDetailDto> {
+    if (
+      this.config.get<boolean>('MERCHANT_PHOTO_IMPORT_ENABLED', true) === false
+    )
+      throw new NotFoundException('PHOTO_DISABLED');
     const id = await this.read(merchantUploader(actor), file);
     return await this.imports.detail(id, actor.merchantId);
   }
@@ -202,8 +207,8 @@ export class PhotoImportService {
           mappingSnapshot: {
             version: 1,
             mode: 'photo',
-            provider: 'mistral',
-            model: 'mistral-ocr-4-1',
+            provider: 'google-vertex-ai',
+            model: PHOTO_OCR_MODEL,
           },
         },
         select: { id: true },

@@ -16,7 +16,7 @@ interface Environment {
   MERCHANT_DELETE_ACTOR_IDS: string[];
   PRODUCT_REVIEWS_ENABLED: boolean;
   PHOTO_IMPORT_ENABLED: boolean;
-  MISTRAL_API_KEY: string;
+  MERCHANT_PHOTO_IMPORT_ENABLED: boolean;
   FIREBASE_PROJECT_ID: string;
   CATALOG_IMAGE_BUCKET: string;
   CATALOG_IMAGE_PUBLIC_ORIGIN: string;
@@ -260,9 +260,12 @@ export function validateEnvironment(
       rawEnvironment.PHOTO_IMPORT_ENABLED,
       false,
     ),
-    MISTRAL_API_KEY: booleanValue(rawEnvironment.PHOTO_IMPORT_ENABLED, false)
-      ? secretValue(rawEnvironment.MISTRAL_API_KEY, 'MISTRAL_API_KEY')
-      : '',
+    // New photo uploads from the merchant app. Off while an app build still
+    // names a previous OCR provider in its consent text; admin uploads unaffected.
+    MERCHANT_PHOTO_IMPORT_ENABLED: booleanValue(
+      rawEnvironment.MERCHANT_PHOTO_IMPORT_ENABLED,
+      true,
+    ),
     ADMIN_API_KEY:
       authMode === 'local-key'
         ? secretValue(rawEnvironment.ADMIN_API_KEY, 'ADMIN_API_KEY')
