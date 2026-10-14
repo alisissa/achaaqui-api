@@ -1,4 +1,8 @@
 import { Prisma } from '../generated/prisma/client';
+import {
+  PUBLIC_PRODUCT_SQL,
+  REVIEW_MERCHANT_ID,
+} from '../common/public-catalog';
 import type { PrismaService } from '../database/prisma.service';
 import type { ProductListQueryDto } from './products.dto';
 
@@ -30,8 +34,9 @@ export async function searchCatalog(
   );
   const scope = Prisma.sql`FROM "Product" p JOIN "Category" c ON c.id = p."categoryId"
     WHERE p.status = 'ACTIVE'
+      AND ${PUBLIC_PRODUCT_SQL}
       ${query.categorySlug ? Prisma.sql`AND c.slug = ${query.categorySlug} AND c.active` : Prisma.empty}
-      ${query.merchantSlug ? Prisma.sql`AND EXISTS (SELECT 1 FROM "MerchantProduct" o JOIN "Merchant" m ON m.id = o."merchantId" WHERE o."productId" = p.id AND o.active AND m.active AND m.slug = ${query.merchantSlug})` : Prisma.empty}
+      ${query.merchantSlug ? Prisma.sql`AND EXISTS (SELECT 1 FROM "MerchantProduct" o JOIN "Merchant" m ON m.id = o."merchantId" WHERE o."productId" = p.id AND o.active AND m.active AND m.id <> ${REVIEW_MERCHANT_ID}::uuid AND m.slug = ${query.merchantSlug})` : Prisma.empty}
       AND (p.barcode = ${query.q?.trim() ?? ''} OR (${Prisma.join(conditions, ' AND ')}))`;
   return await prisma.$transaction(
     async (tx) => {

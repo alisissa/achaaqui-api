@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PUBLIC_PRODUCT_WHERE } from '../common/public-catalog';
 import { paginationMeta } from '../common/dto/pagination-meta.dto';
 import { PrismaService } from '../database/prisma.service';
 import { ProductStatus } from '../generated/prisma/client';
@@ -26,7 +27,12 @@ export class CategoriesService {
           description: true,
           _count: {
             select: {
-              products: { where: { status: ProductStatus.ACTIVE } },
+              products: {
+                where: {
+                  status: ProductStatus.ACTIVE,
+                  ...PUBLIC_PRODUCT_WHERE,
+                },
+              },
             },
           },
         },

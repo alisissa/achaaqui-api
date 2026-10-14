@@ -223,28 +223,32 @@ async function seed(): Promise<void> {
     where: { source: PriceChangeSource.SEED },
   });
   await prisma.priceHistory.createMany({
-    data: historyOffers.flatMap((offer) => [
-      {
-        merchantProductId: offer.id,
-        oldPrice: offer.price.plus(30),
-        oldCurrency: offer.currency,
-        newPrice: offer.price.plus(15),
-        currency: offer.currency,
-        source: PriceChangeSource.SEED,
-        actorId: 'local-seed',
-        changedAt: new Date(now - 21 * 24 * 60 * 60 * 1000),
-      },
-      {
-        merchantProductId: offer.id,
-        oldPrice: offer.price.plus(15),
-        oldCurrency: offer.currency,
-        newPrice: offer.price,
-        currency: offer.currency,
-        source: PriceChangeSource.SEED,
-        actorId: 'local-seed',
-        changedAt: new Date(now - 3 * 24 * 60 * 60 * 1000),
-      },
-    ]),
+    data: historyOffers.flatMap((offer) =>
+      offer.price
+        ? [
+            {
+              merchantProductId: offer.id,
+              oldPrice: offer.price.plus(30),
+              oldCurrency: offer.currency,
+              newPrice: offer.price.plus(15),
+              currency: offer.currency,
+              source: PriceChangeSource.SEED,
+              actorId: 'local-seed',
+              changedAt: new Date(now - 21 * 24 * 60 * 60 * 1000),
+            },
+            {
+              merchantProductId: offer.id,
+              oldPrice: offer.price.plus(15),
+              oldCurrency: offer.currency,
+              newPrice: offer.price,
+              currency: offer.currency,
+              source: PriceChangeSource.SEED,
+              actorId: 'local-seed',
+              changedAt: new Date(now - 3 * 24 * 60 * 60 * 1000),
+            },
+          ]
+        : [],
+    ),
   });
 }
 

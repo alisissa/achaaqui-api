@@ -53,8 +53,13 @@ export class MerchantSelfServiceController {
   async detail(
     @CurrentMerchant() actor: MerchantActor,
     @Param() params: OwnOfferParamDto,
+    @Query('includeUnpriced') includeUnpriced?: string,
   ): Promise<AdminOfferDto> {
-    return await this.offers.detail(actor.merchantId, params.offerId);
+    return await this.offers.detail(
+      actor.merchantId,
+      params.offerId,
+      includeUnpriced === 'true',
+    );
   }
 
   @Post('offers')

@@ -27,6 +27,13 @@ export class MerchantOfferParamDto extends MerchantIdParamDto {
 
 export class OfferQueryDto extends PaginationQueryDto {
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  includeUnpriced?: boolean;
+
+  @IsOptional()
   @IsString()
   @MaxLength(120)
   q?: string;
@@ -63,6 +70,10 @@ export class NewCatalogProductDto {
 }
 
 export class OfferValuesDto {
+  @IsOptional()
+  @IsBoolean()
+  priceOnRequest?: boolean;
+
   @IsString()
   @Length(1, 120)
   declare merchantSku: string;
@@ -126,7 +137,8 @@ export class AdminOfferDto {
   declare sponsored: boolean;
   declare id: string;
   declare merchantSku: string;
-  declare price: { amount: string; currency: string };
+  declare price: { amount: string; currency: string } | null;
+  declare currency: string;
   declare availability: OfferAvailability;
   declare stockQuantity: number | null;
   declare active: boolean;

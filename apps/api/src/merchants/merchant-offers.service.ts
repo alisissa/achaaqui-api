@@ -73,6 +73,7 @@ export class MerchantOffersService {
     await this.requireMerchant(this.prisma, merchantId, false);
     const where: Prisma.MerchantProductWhereInput = {
       merchantId,
+      ...(query.includeUnpriced ? {} : { price: { not: null } }),
       ...(query.active === undefined ? {} : { active: query.active }),
       ...(query.q
         ? {
@@ -136,9 +137,17 @@ export class MerchantOffersService {
     return { items, ...paginationMeta(total, query.page, query.pageSize) };
   }
 
-  async detail(merchantId: string, offerId: string): Promise<AdminOfferDto> {
+  async detail(
+    merchantId: string,
+    offerId: string,
+    includeUnpriced = false,
+  ): Promise<AdminOfferDto> {
     const offer = await this.prisma.merchantProduct.findFirst({
-      where: { id: offerId, merchantId },
+      where: {
+        id: offerId,
+        merchantId,
+        ...(includeUnpriced ? {} : { price: { not: null } }),
+      },
       select: offerSelect,
     });
     if (!offer) throw new NotFoundException('Merchant offer not found.');
@@ -193,15 +202,16 @@ export class MerchantOffersService {
           },
           select: offerSelect,
         });
-        await tx.priceHistory.create({
-          data: {
-            merchantProductId: created.id,
-            newPrice: created.price,
-            currency: created.currency,
-            source: 'MANUAL',
-            actorId,
-          },
-        });
+        if (created.price)
+          await tx.priceHistory.create({
+            data: {
+              merchantProductId: created.id,
+              newPrice: created.price,
+              currency: created.currency,
+              source: 'MANUAL',
+              actorId,
+            },
+          });
         return created;
       });
       return this.toDto(offer);
@@ -232,17 +242,20 @@ export class MerchantOffersService {
         if (!activeProduct)
           throw new ConflictException('The catalog product is inactive.');
         const priceChanged =
-          !current.price.equals(values.price) ||
+          current.price?.toString() !== values.price?.toString() ||
           current.currency !== values.currency;
         if (priceChanged && !input.confirmWarnings) {
-          const movement = values.price
-            .minus(current.price)
-            .abs()
-            .div(current.price)
-            .times(100);
+          const movement =
+            current.price && values.price
+              ? values.price
+                  .minus(current.price)
+                  .abs()
+                  .div(current.price)
+                  .times(100)
+              : null;
           if (
             current.currency !== values.currency ||
-            movement.greaterThanOrEqualTo(
+            movement?.greaterThanOrEqualTo(
               this.config.get<number>('IMPORT_SUSPICIOUS_CHANGE_PERCENT', 50),
             )
           ) {
@@ -259,6 +272,9 @@ export class MerchantOffersService {
           data: {
             ...values,
             active: input.active,
+            ...(values.price === null
+              ? { promotionText: null, promotionEndsAt: null }
+              : {}),
             removedBy: input.active
               ? null
               : current.active
@@ -269,12 +285,12 @@ export class MerchantOffersService {
           },
           select: offerSelect,
         });
-        if (priceChanged)
+        if (priceChanged && values.price)
           await tx.priceHistory.create({
             data: {
               merchantProductId: offerId,
               oldPrice: effectivePrice(current, now),
-              oldCurrency: current.currency,
+              oldCurrency: current.price ? current.currency : null,
               newPrice: values.price,
               currency: values.currency,
               source: 'MANUAL',
@@ -334,23 +350,38 @@ export class MerchantOffersService {
 
   private validateValues(input: OfferValuesDto): {
     merchantSku: string;
-    price: Prisma.Decimal;
+    price: Prisma.Decimal | null;
     currency: string;
     stockQuantity: number | null;
     availability: OfferAvailability;
   } {
     if (input.confirmed !== true)
       throw new BadRequestException('Confirm the offer change before saving.');
+    if (input.priceOnRequest === true && input.price.trim() !== '')
+      throw new BadRequestException(
+        'Leave price blank when requesting a price from the store.',
+      );
     const normalized = normalizeImportRecord(
-      { ...input, productName: 'Manual offer', stock: input.stock ?? '' },
+      {
+        ...input,
+        price: input.price.trim(),
+        productName: 'Manual offer',
+        stock: input.stock ?? '',
+      },
       new Set(
         this.config
           .get<string>('IMPORT_SUPPORTED_CURRENCIES', 'BRL,USD,PYG')
           .split(','),
       ),
+      { allowMissingPrice: input.priceOnRequest === true },
     );
     const { data, errors, warnings } = normalized;
-    if (errors.length || !data.price || !data.currency || !data.merchantSku)
+    if (
+      errors.length ||
+      (!data.price && input.priceOnRequest !== true) ||
+      !data.currency ||
+      !data.merchantSku
+    )
       throw new BadRequestException(errors);
     if (warnings.length && !input.confirmWarnings)
       throw new ConflictException(
@@ -358,7 +389,7 @@ export class MerchantOffersService {
       );
     return {
       merchantSku: data.merchantSku,
-      price: new Prisma.Decimal(data.price),
+      price: data.price ? new Prisma.Decimal(data.price) : null,
       currency: data.currency,
       stockQuantity: data.stock,
       availability: data.availability,
@@ -490,7 +521,10 @@ export class MerchantOffersService {
       sponsored: offer.sponsored,
       id: offer.id,
       merchantSku: offer.merchantSku,
-      price: { amount: offer.price.toFixed(2), currency: offer.currency },
+      price: offer.price
+        ? { amount: offer.price.toFixed(2), currency: offer.currency }
+        : null,
+      currency: offer.currency,
       availability: offer.availability,
       stockQuantity: offer.stockQuantity,
       active: offer.active,

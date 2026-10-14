@@ -55,7 +55,7 @@ interface CurrentOffer {
   id: string;
   productId: string;
   merchantSku: string;
-  price: Prisma.Decimal;
+  price: Prisma.Decimal | null;
   currency: string;
   updatedAt: Date;
 }
@@ -323,7 +323,9 @@ export class ImportCommitService {
                 oldPrice: previousOffer
                   ? effectivePrice(previousOffer, committedAt)
                   : null,
-                oldCurrency: previousOffer?.currency ?? null,
+                oldCurrency: previousOffer?.price
+                  ? previousOffer.currency
+                  : null,
                 newPrice: row.price,
                 currency: row.currency,
                 source:
@@ -460,7 +462,10 @@ export class ImportCommitService {
       const sameOffer = current?.id === row.merchantProductId;
       const sameSku = current?.merchantSku === row.merchantSku;
       const samePrice = Boolean(
-        current && row.stagedPrice && current.price.equals(row.stagedPrice),
+        current &&
+        (current.price === null
+          ? row.stagedPrice === null
+          : row.stagedPrice && current.price.equals(row.stagedPrice)),
       );
       const sameCurrency = current?.currency === row.stagedCurrency;
       const sameVersion =

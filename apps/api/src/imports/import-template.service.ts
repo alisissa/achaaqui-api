@@ -227,7 +227,7 @@ export class ImportTemplateService {
       offer.product.brand.name,
       offer.product.model ?? '',
       offer.product.barcode ?? '',
-      offer.price.toFixed(2),
+      offer.price?.toFixed(2) ?? '',
       offer.currency,
       offer.stockQuantity === null ? '' : String(offer.stockQuantity),
       offer.availability,

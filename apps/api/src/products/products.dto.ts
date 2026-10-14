@@ -116,7 +116,7 @@ export class OfferDto {
   declare id: string;
   declare merchantSku: string;
   declare merchant: MerchantReferenceDto;
-  declare price: PriceDto;
+  declare price: PriceDto | null;
   declare availability: OfferAvailability;
   declare stockQuantity: number | null;
   declare freshness: FreshnessDto;

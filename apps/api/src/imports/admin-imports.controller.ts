@@ -39,6 +39,8 @@ import {
 import { ImportTemplateService } from './import-template.service';
 import { ImportsService } from './imports.service';
 import { IMPORT_UPLOAD_OPTIONS } from './import-upload-options';
+import { PhotoImportService } from './photo-import.service';
+import { PHOTO_MAX_BYTES } from './photo-ocr.service';
 
 @ApiTags('admin imports')
 @ApiBearerAuth('admin-key')
@@ -51,7 +53,26 @@ export class AdminImportsController {
     private readonly stagingService: ImportStagingService,
     private readonly commitService: ImportCommitService,
     private readonly templateService: ImportTemplateService,
+    private readonly photoImports: PhotoImportService,
   ) {}
+
+  // A photo or screenshot of a store's price list, read with OCR into the same
+  // preview as CSV/Excel. Nothing is published until the preview is confirmed.
+  @Post('photo')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { ...IMPORT_UPLOAD_OPTIONS.limits, fileSize: PHOTO_MAX_BYTES },
+    }),
+  )
+  @ApiConsumes('multipart/form-data')
+  @ApiCreatedResponse({ type: AdminImportDetailDto })
+  async uploadPhoto(
+    @ActorId() actorId: string,
+    @Body() input: UploadCsvDto,
+    @UploadedFile() file: UploadedCsvFile | undefined,
+  ): Promise<AdminImportDetailDto> {
+    return await this.photoImports.adminUpload(input.merchantId, actorId, file);
+  }
 
   @Get('template')
   async template(

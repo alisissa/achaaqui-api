@@ -259,10 +259,14 @@ function normalizeAvailability(
 export function normalizeImportRecord(
   record: Record<string, unknown>,
   supportedCurrencies: ReadonlySet<string>,
+  options: { allowMissingPrice?: boolean } = {},
 ): NormalizationResult {
   const merchantSku = cleanText(record.merchantSku)?.toUpperCase() ?? null;
   const productName = cleanText(record.productName);
-  const price = normalizePrice(record.price);
+  const price =
+    options.allowMissingPrice && record.price === ''
+      ? { value: null, error: undefined }
+      : normalizePrice(record.price);
   const currency = normalizeCurrency(record.currency);
   const stock = normalizeStock(record.stock);
   const availability = normalizeAvailability(record.availability, stock.value);

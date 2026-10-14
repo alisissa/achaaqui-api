@@ -219,6 +219,78 @@ run('commercial offers, sponsorship and fuzzy discovery', () => {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   }
+  it('serves unpriced listings only to opted-in clients and excludes them from promotions and best-price freshness', async () => {
+    await commercial.update(merchantId, offer.id, input(), 'firebase:test');
+    const current = await offers.detail(merchantId, offer.id);
+    const unknown = await offers.update(merchantId, offer.id, {
+      merchantSku: current.merchantSku,
+      price: '',
+      priceOnRequest: true,
+      currency: 'BRL',
+      stock: '',
+      availability: 'UNKNOWN',
+      active: true,
+      confirmed: true,
+      confirmWarnings: true,
+      expectedUpdatedAt: current.updatedAt,
+    });
+    expect(unknown.salePrice).toBeNull();
+    expect(unknown.promotionText).toBeNull();
+    const legacy = (await (
+      await call(`/products/${prefix}`)
+    ).json()) as ProductDetailDto;
+    expect(legacy.offers).toEqual([]);
+    const modern = (await (
+      await call(`/products/${prefix}?includeUnpriced=true`)
+    ).json()) as ProductDetailDto;
+    expect(modern.offers).toHaveLength(1);
+    expect(modern.offers[0].price).toBeNull();
+    expect(modern.bestPrice).toBeNull();
+    expect(modern.bestPrices).toEqual([]);
+    expect(modern.freshness).toBeNull();
+    const oldStore = (await (
+      await call(`/merchants/${prefix}/offers`)
+    ).json()) as MerchantOfferListResponseDto;
+    expect(oldStore.total).toBe(0);
+    const newStore = (await (
+      await call(`/merchants/${prefix}/offers?includeUnpriced=true`)
+    ).json()) as MerchantOfferListResponseDto;
+    expect(newStore.total).toBe(1);
+    expect(newStore.items[0].price).toBeNull();
+    expect(
+      (
+        await call(
+          `/merchant/offers/${offer.id}`,
+          'GET',
+          undefined,
+          session.token,
+        )
+      ).status,
+    ).toBe(404);
+    const privateUnpriced = await call(
+      `/merchant/offers/${offer.id}?includeUnpriced=true`,
+      'GET',
+      undefined,
+      session.token,
+    );
+    expect(privateUnpriced.status).toBe(200);
+    expect(((await privateUnpriced.json()) as AdminOfferDto).price).toBeNull();
+    await expect(
+      commercial.update(
+        merchantId,
+        offer.id,
+        input({ expectedUpdatedAt: unknown.updatedAt }),
+        'firebase:test',
+      ),
+    ).rejects.toThrow('published price');
+    await expect(
+      prisma.merchantProduct.update({
+        where: { id: offer.id },
+        data: { salePrice: 10 },
+      }),
+    ).rejects.toThrow();
+  });
+
   function input(
     overrides: Partial<CommercialChangeDto> = {},
   ): CommercialChangeDto {
@@ -446,8 +518,8 @@ run('commercial offers, sponsorship and fuzzy discovery', () => {
     let current = await offers.detail(merchantId, offer.id);
     const edit = (): UpdateMerchantOfferDto => ({
       merchantSku: current.merchantSku,
-      price: current.price.amount,
-      currency: current.price.currency,
+      price: current.price?.amount ?? '',
+      currency: current.price?.currency ?? 'BRL',
       stock: '6',
       availability: current.availability,
       active: current.active,
@@ -545,7 +617,7 @@ run('commercial offers, sponsorship and fuzzy discovery', () => {
         await prisma.merchantProduct.findUniqueOrThrow({
           where: { id: offer.id },
         }),
-      ).toString(),
+      )?.toString(),
     ).toBe('80');
   });
   it('only admins can sponsor, and inactive or unavailable records disappear', async () => {

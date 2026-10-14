@@ -59,6 +59,7 @@ run('photo import HTTP isolation and lifecycle', () => {
   let providerCalls = 0;
   let sequence = 0;
   const password = randomBytes(24).toString('base64url');
+  const ADMIN_TOKEN = randomBytes(24).toString('base64url');
   const config = new ConfigService({
     NODE_ENV: 'test',
     DATABASE_URL: url,
@@ -148,7 +149,10 @@ run('photo import HTTP isolation and lifecycle', () => {
       })
       .overrideProvider(FirebaseAdminAuthService)
       .useValue({
-        verify: () => {
+        // Only the fixture admin token is a platform admin; merchant tokens are not.
+        verify: (credential: string) => {
+          if (credential === ADMIN_TOKEN)
+            return { id: 'firebase:test-admin', role: 'platform_admin' };
           throw new UnauthorizedException();
         },
       })
@@ -548,6 +552,61 @@ run('photo import HTTP isolation and lifecycle', () => {
     ).toBe(409);
   });
 
+  it('lets a platform admin read a store photo into the normal admin preview', async () => {
+    const storeId = (
+      await prisma.merchant.create({
+        data: { name: `${prefix} admin photo`, slug: `${prefix}-admin-photo` },
+      })
+    ).id;
+    const adminForm = (): FormData => {
+      const form = uploadBody();
+      form.append('merchantId', storeId);
+      return form;
+    };
+    try {
+      extraction = [makeRow()];
+      const before = providerCalls;
+      const response = await call(
+        '/admin/imports/photo',
+        'POST',
+        adminForm(),
+        ADMIN_TOKEN,
+      );
+      const preview = (await response.json()) as AdminImportDetailDto;
+      expect(response.status, JSON.stringify(preview)).toBe(201);
+      expect(preview.sourceType).toBe('PHOTO');
+      expect(providerCalls).toBe(before + 1);
+      expect(
+        await prisma.import.findUniqueOrThrow({
+          where: { id: preview.id },
+          select: { merchantId: true, actorId: true, status: true },
+        }),
+      ).toEqual({
+        merchantId: storeId,
+        actorId: 'firebase:test-admin',
+        status: 'READY',
+      });
+      // A merchant login cannot use the admin route, and nothing reaches the provider.
+      expect(
+        (await call('/admin/imports/photo', 'POST', adminForm())).status,
+      ).toBe(401);
+      await prisma.merchant.update({
+        where: { id: storeId },
+        data: { active: false },
+      });
+      expect(
+        (await call('/admin/imports/photo', 'POST', adminForm(), ADMIN_TOKEN))
+          .status,
+      ).toBe(404);
+      expect(providerCalls).toBe(before + 1);
+    } finally {
+      await prisma.importRow.deleteMany({
+        where: { import: { merchantId: storeId } },
+      });
+      await prisma.import.deleteMany({ where: { merchantId: storeId } });
+      await prisma.merchant.delete({ where: { id: storeId } });
+    }
+  });
   it('denies anonymous upload and hides disabled feature without provider calls', async () => {
     const before = providerCalls;
     expect(

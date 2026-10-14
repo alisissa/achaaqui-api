@@ -55,7 +55,7 @@ interface ExistingOffer {
   id: string;
   merchantSku: string;
   productId: string;
-  price: Prisma.Decimal;
+  price: Prisma.Decimal | null;
   currency: string;
   availability: OfferAvailability;
   stockQuantity: number | null;
@@ -375,7 +375,7 @@ export class ImportStagingService {
         stored: {
           ...result.data,
           action,
-          currentPrice: matched.offer?.price.toString() ?? null,
+          currentPrice: matched.offer?.price?.toString() ?? null,
           currentCurrency: matched.offer?.currency ?? null,
           currentUpdatedAt: matched.offer?.updatedAt.toISOString() ?? null,
           currentMerchantSku: matched.offer?.merchantSku ?? null,
@@ -556,6 +556,7 @@ export class ImportStagingService {
       return;
     }
 
+    if (!offer.price) return;
     const proposed = new Prisma.Decimal(data.price);
     const percentage = proposed
       .minus(offer.price)
@@ -578,7 +579,7 @@ export class ImportStagingService {
       return IMPORT_ACTIONS.BLOCKED;
     }
     if (!offer) return IMPORT_ACTIONS.NEW_OFFER;
-    if (!offer.price.equals(data.price) || offer.currency !== data.currency) {
+    if (!offer.price?.equals(data.price) || offer.currency !== data.currency) {
       return IMPORT_ACTIONS.PRICE_CHANGE;
     }
     if (

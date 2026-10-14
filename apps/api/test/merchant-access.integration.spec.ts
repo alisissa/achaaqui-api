@@ -334,7 +334,7 @@ run('merchant HTTP access and transaction isolation', () => {
         })
       ).status,
     ).toBe(404);
-    expect((await offers.detail(b, other.id)).price.amount).toBe('100.00');
+    expect((await offers.detail(b, other.id)).price?.amount).toBe('100.00');
     expect((await call('/merchant/offers')).status).toBe(200);
     expect(
       ((await (await call('/merchant/offers')).json()) as AdminOfferListDto)
@@ -374,7 +374,7 @@ run('merchant HTTP access and transaction isolation', () => {
     });
     expect(updated.status).toBe(200);
     const current = (await updated.json()) as AdminOfferDto;
-    expect(current.price.amount).toBe('1299.00');
+    expect(current.price?.amount).toBe('1299.00');
     expect(
       (
         await call(`/merchant/offers/${own.id}`, 'PATCH', {
@@ -428,7 +428,7 @@ run('merchant HTTP access and transaction isolation', () => {
     expect(hiddenEdit.status).toBe(200);
     const stillHidden = (await hiddenEdit.json()) as AdminOfferDto;
     expect(stillHidden.active).toBe(false);
-    expect(stillHidden.price.amount).toBe('1298.00');
+    expect(stillHidden.price?.amount).toBe('1298.00');
     const publicOffers = await call(
       `/merchants/${prefix}-a/offers`,
       'GET',

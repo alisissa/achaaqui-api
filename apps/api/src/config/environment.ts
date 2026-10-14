@@ -13,10 +13,13 @@ interface Environment {
   ADMIN_API_KEY: string;
   ADMIN_AUTH_MODE: 'local-key' | 'firebase';
   MERCHANT_ACCESS_ENABLED: boolean;
+  MERCHANT_DELETE_ACTOR_IDS: string[];
   PRODUCT_REVIEWS_ENABLED: boolean;
   PHOTO_IMPORT_ENABLED: boolean;
   MISTRAL_API_KEY: string;
   FIREBASE_PROJECT_ID: string;
+  CATALOG_IMAGE_BUCKET: string;
+  CATALOG_IMAGE_PUBLIC_ORIGIN: string;
   ANALYTICS_HASH_KEY: string;
   ANALYTICS_RETENTION_DAYS: number;
   IMPORT_SUPPORTED_CURRENCIES: string;
@@ -167,7 +170,42 @@ export function validateEnvironment(
     );
   }
 
+  const imageBucket = rawEnvironment.CATALOG_IMAGE_BUCKET ?? '';
+  const imageOrigin = rawEnvironment.CATALOG_IMAGE_PUBLIC_ORIGIN ?? '';
+  if (
+    typeof imageBucket !== 'string' ||
+    typeof imageOrigin !== 'string' ||
+    Boolean(imageBucket) !== Boolean(imageOrigin) ||
+    (imageBucket &&
+      (!/^[a-z0-9][a-z0-9._-]{1,220}[a-z0-9]$/.test(imageBucket) ||
+        !firebaseProjectId))
+  ) {
+    throw new Error(
+      'Catalog images require a valid bucket, public origin and Firebase project.',
+    );
+  }
+  if (imageOrigin) {
+    const parsed = new URL(imageOrigin);
+    if (
+      parsed.origin !== imageOrigin ||
+      parsed.username ||
+      parsed.password ||
+      (parsed.protocol !== 'https:' &&
+        !(
+          nodeEnvironment !== 'production' &&
+          parsed.protocol === 'http:' &&
+          ['localhost', '127.0.0.1'].includes(parsed.hostname)
+        ))
+    ) {
+      throw new Error(
+        'CATALOG_IMAGE_PUBLIC_ORIGIN must be an HTTPS origin without a path.',
+      );
+    }
+  }
+
   return {
+    CATALOG_IMAGE_BUCKET: imageBucket,
+    CATALOG_IMAGE_PUBLIC_ORIGIN: imageOrigin,
     NODE_ENV: nodeEnvironment as Environment['NODE_ENV'],
     PORT: positiveInteger(rawEnvironment.PORT, 3000, 'PORT'),
     TRUST_PROXY_HOPS: nonNegativeInteger(
@@ -203,6 +241,16 @@ export function validateEnvironment(
       rawEnvironment.MERCHANT_ACCESS_ENABLED,
       false,
     ),
+    // Only these admin actors may soft delete merchants. Default: the owner's
+    // Firebase account (alisissa@gmail.com).
+    MERCHANT_DELETE_ACTOR_IDS:
+      (typeof rawEnvironment.MERCHANT_DELETE_ACTOR_IDS === 'string'
+        ? rawEnvironment.MERCHANT_DELETE_ACTOR_IDS
+        : 'firebase:8h8jffQUbnf7OEdsbBpPYig2zag2'
+      )
+        .split(',')
+        .map((id) => id.trim())
+        .filter((id) => id.length > 0),
     PRODUCT_REVIEWS_ENABLED: booleanValue(
       rawEnvironment.PRODUCT_REVIEWS_ENABLED,
       false,

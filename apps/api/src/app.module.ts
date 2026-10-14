@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CatalogAdminModule } from './catalog-admin/catalog-admin.module';
 import { CommercialModule } from './commercial/commercial.module';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -14,9 +15,11 @@ import { ImportsModule } from './imports/imports.module';
 import { MerchantsModule } from './merchants/merchants.module';
 import { ProductsModule } from './products/products.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { AdminProductsModule } from './admin-products/admin-products.module';
 
 @Module({
   imports: [
+    CatalogAdminModule,
     CommercialModule,
     ConfigModule.forRoot({
       isGlobal: true,
@@ -30,6 +33,7 @@ import { ReviewsModule } from './reviews/reviews.module';
     ImportsModule,
     SearchAnalyticsModule,
     ReviewsModule,
+    AdminProductsModule,
     CategoriesModule,
     ProductsModule,
     MerchantsModule,

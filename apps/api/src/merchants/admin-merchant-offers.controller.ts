@@ -58,8 +58,15 @@ export class AdminMerchantOffersController {
 
   @Get(':offerId')
   @ApiOkResponse({ type: AdminOfferDto })
-  async detail(@Param() params: MerchantOfferParamDto): Promise<AdminOfferDto> {
-    return await this.offers.detail(params.merchantId, params.offerId);
+  async detail(
+    @Param() params: MerchantOfferParamDto,
+    @Query('includeUnpriced') includeUnpriced?: string,
+  ): Promise<AdminOfferDto> {
+    return await this.offers.detail(
+      params.merchantId,
+      params.offerId,
+      includeUnpriced === 'true',
+    );
   }
 
   @Patch(':offerId')
