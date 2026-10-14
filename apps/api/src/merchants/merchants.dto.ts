@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import {
+  Equals,
   IsBoolean,
   IsEmail,
   IsOptional,
@@ -18,6 +19,12 @@ import { NamedReferenceDto, PriceDto } from '../products/products.dto';
 import { RatingSummaryDto } from '../reviews/reviews.dto';
 
 export class MerchantOffersQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    value === 'true' ? true : value === 'false' ? false : value,
+  )
+  @IsBoolean()
+  includeUnpriced?: boolean;
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
@@ -61,7 +68,7 @@ export class MerchantOfferItemDto {
   declare promotion?: { text: string; endsAt: string | null } | null;
   declare id: string;
   declare merchantSku: string;
-  declare price: PriceDto;
+  declare price: PriceDto | null;
   declare availability: OfferAvailability;
   declare stockQuantity: number | null;
   declare freshness: FreshnessDto;
@@ -168,4 +175,11 @@ export class AdminMerchantItemDto extends MerchantDetailDto {
 
 export class AdminMerchantListResponseDto extends PaginationMetaDto {
   declare items: AdminMerchantItemDto[];
+  // Whether the signed-in admin may soft delete merchants.
+  declare canDelete: boolean;
+}
+
+export class DeleteMerchantDto {
+  @Equals(true)
+  declare confirmed: true;
 }

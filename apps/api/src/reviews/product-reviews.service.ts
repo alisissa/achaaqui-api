@@ -14,6 +14,10 @@ import { PaginationQueryDto } from '../common/dto/pagination-query.dto';
 import { PrismaService } from '../database/prisma.service';
 import { Prisma } from '../generated/prisma/client';
 import {
+  PUBLIC_PRODUCT_SQL,
+  PUBLIC_PRODUCT_WHERE,
+} from '../common/public-catalog';
+import {
   CreateProductReviewDto,
   OwnProductReviewDto,
   OwnProductReviewResponseDto,
@@ -70,7 +74,7 @@ export class ProductReviewsService {
   private async product(slug: string): Promise<{ id: string }> {
     this.requireEnabled();
     const product = await this.prisma.product.findFirst({
-      where: { slug, status: 'ACTIVE' },
+      where: { slug, status: 'ACTIVE', ...PUBLIC_PRODUCT_WHERE },
       select: { id: true },
     });
     if (!product) throw new NotFoundException('Product not found.');
@@ -168,7 +172,7 @@ export class ProductReviewsService {
           await assertReviewerCanPost(tx, reviewerHash);
           const products = await tx.$queryRaw<
             Array<{ id: string }>
-          >`SELECT id FROM "Product" WHERE slug=${slug} AND status='ACTIVE' FOR SHARE`;
+          >`SELECT p.id FROM "Product" p WHERE p.slug=${slug} AND p.status='ACTIVE' AND ${PUBLIC_PRODUCT_SQL} FOR SHARE`;
           const product = products[0];
           if (!product) throw new NotFoundException('Product not found.');
           const existing = await tx.customerReview.findUnique({

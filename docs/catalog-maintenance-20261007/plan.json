@@ -1,0 +1,20 @@
+{
+  "authorization": "Ali explicitly requested ten products and categories via a script on 2026-10-07; photos will be supplied separately. Unknown prices and stock remain unset.",
+  "categories": [{"name":"Perfumes","slug":"perfumes"},{"name":"Celulares","slug":"phones"},{"name":"Áudio","slug":"audio"},{"name":"Tablets","slug":"tablets"}],
+  "merchants": [
+    {"id":"d8c3baca-73b4-4da9-bbcf-9caa8c7ac6a5","name":"Mary-Su Perfumes e Cosméticos","products":[
+      {"existingId":"a9552d30-5693-4764-99f1-54ccbca7895b","name":"Perfume Asdaaf Ameerat Al Arab Privé Rose Eau de Parfum 100 ml","category":"perfumes"},
+      {"sku":"MARYSU-MILLION-GOLD","name":"Perfume Rabanne Million Gold — volume a consultar","brand":"Rabanne","model":"Million Gold; volume e concentração a consultar","category":"perfumes","source":"Merchant Instagram screenshot IMG_0113.PNG, post 2024-09-30. Historical product identification only; current stock and price unknown."},
+      {"sku":"MARYSU-CDN-MILESTONE","name":"Perfume Armaf Club de Nuit Milestone — volume a consultar","brand":"Armaf","model":"Club de Nuit Milestone; volume e concentração a consultar","category":"perfumes","source":"Merchant Instagram screenshot IMG_0116.PNG, post 2024-08-23. Historical product identification only."},
+      {"sku":"MARYSU-CDN-SILLAGE","name":"Perfume Armaf Club de Nuit Sillage — volume a consultar","brand":"Armaf","model":"Club de Nuit Sillage; volume e concentração a consultar","category":"perfumes","source":"Merchant Instagram screenshot IMG_0116.PNG, post 2024-08-23. Historical product identification only."},
+      {"sku":"MARYSU-CDN-INTENSE-MAN","name":"Perfume Armaf Club de Nuit Intense Man — versão a consultar","brand":"Armaf","model":"Club de Nuit Intense Man; versão, volume e concentração a consultar","category":"perfumes","source":"Merchant Instagram screenshot IMG_0116.PNG, post 2024-08-23. Historical product identification only."}
+    ]},
+    {"id":"50c8c87e-9b39-4b66-95d8-05435ed49e4c","name":"Mundial Celulares","products":[
+      {"existingId":"935fc16f-e445-4883-9981-63c4e28af3c3","name":"Apple iPhone 18 Pro — configuração e condição a consultar","category":"phones"},
+      {"sku":"MUNDIAL-IPHONE-DUO","name":"Apple iPhone Duo — disponibilidade a consultar","brand":"Apple","model":"iPhone Duo; configuração e condição a consultar","category":"phones","source":"Model name explicitly supplied by Ali on 2026-10-07. No confirmed inventory, launch date, specifications or preorder claim."},
+      {"sku":"MUNDIAL-IPHONE-17","name":"Apple iPhone 17 — configuração e condição a consultar","brand":"Apple","model":"iPhone 17; armazenamento, cor e condição a consultar","category":"phones","source":"Model name explicitly supplied by Ali on 2026-10-07."},
+      {"sku":"MUNDIAL-AIRPODS-PRO","name":"Apple AirPods Pro — geração a confirmar","brand":"Apple","model":"AirPods Pro; geração e condição a confirmar","category":"audio","source":"Product family supplied by Ali on 2026-10-07; generation unspecified, no generation-dependent specifications."},
+      {"sku":"MUNDIAL-IPAD","name":"Apple iPad — modelo e geração a confirmar","brand":"Apple","model":"iPad; modelo, geração, armazenamento e condição a confirmar","category":"tablets","source":"Ali requested iPad newest gen; exact family/model remains unknown. Generic family listing only, no newest-generation claim."}
+    ]}
+  ]
+}

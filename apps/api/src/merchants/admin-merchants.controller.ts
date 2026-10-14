@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ActorId } from '../admin-auth/admin-actor';
+import { IdParamDto } from '../common/dto/id-param.dto';
 import {
   ApiBearerAuth,
   ApiConflictResponse,
@@ -13,6 +25,7 @@ import {
   AdminMerchantListResponseDto,
   AdminMerchantQueryDto,
   CreateMerchantDto,
+  DeleteMerchantDto,
 } from './merchants.dto';
 import { MerchantsService } from './merchants.service';
 
@@ -28,8 +41,20 @@ export class AdminMerchantsController {
   @ApiOkResponse({ type: AdminMerchantListResponseDto })
   async list(
     @Query() query: AdminMerchantQueryDto,
+    @ActorId() actorId: string,
   ): Promise<AdminMerchantListResponseDto> {
-    return await this.merchantsService.adminList(query);
+    return await this.merchantsService.adminList(query, actorId);
+  }
+
+  // Soft delete, restricted to the owner account (MERCHANT_DELETE_ACTOR_IDS).
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(
+    @Param() params: IdParamDto,
+    @Body() _input: DeleteMerchantDto,
+    @ActorId() actorId: string,
+  ): Promise<void> {
+    await this.merchantsService.softDelete(params.id, actorId);
   }
 
   @Post()

@@ -14,6 +14,43 @@ const validEnvironment = {
 };
 
 describe('validateEnvironment', () => {
+  it('should allow images to stay disabled and require complete storage configuration when enabled', () => {
+    expect(validateEnvironment(validEnvironment).CATALOG_IMAGE_BUCKET).toBe('');
+    expect(() =>
+      validateEnvironment({
+        ...validEnvironment,
+        CATALOG_IMAGE_BUCKET: 'images-bucket',
+      }),
+    ).toThrow();
+    const configured = {
+      ...validEnvironment,
+      FIREBASE_PROJECT_ID: 'achaaqui-web',
+      CATALOG_IMAGE_BUCKET: 'achaaqui-web-catalog-images',
+      CATALOG_IMAGE_PUBLIC_ORIGIN: 'https://api.achaaqui.com',
+    };
+    expect(validateEnvironment(configured).CATALOG_IMAGE_PUBLIC_ORIGIN).toBe(
+      'https://api.achaaqui.com',
+    );
+    for (const origin of [
+      'https://user:pass@api.achaaqui.com',
+      'https://api.achaaqui.com/path',
+      'http://api.achaaqui.com',
+      'https://api.achaaqui.com?x=1',
+    ])
+      expect(() =>
+        validateEnvironment({
+          ...configured,
+          CATALOG_IMAGE_PUBLIC_ORIGIN: origin,
+        }),
+      ).toThrow();
+    expect(() =>
+      validateEnvironment({
+        ...configured,
+        NODE_ENV: 'production',
+        CATALOG_IMAGE_PUBLIC_ORIGIN: 'http://localhost:3001',
+      }),
+    ).toThrow();
+  });
   it('should transform valid string configuration', () => {
     const environment = validateEnvironment(validEnvironment);
 

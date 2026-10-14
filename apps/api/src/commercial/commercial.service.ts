@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
+import { PUBLIC_MERCHANT_WHERE } from '../common/public-catalog';
 import { Prisma } from '../generated/prisma/client';
 import {
   lockMerchantAccess,
@@ -64,10 +65,13 @@ function offerCard(
     primaryImage: string | null;
   };
 } {
+  const price = effectivePrice(offer, now);
+  if (!price)
+    throw new BadRequestException('A promotion requires a published price.');
   return {
     id: offer.id,
     price: {
-      amount: effectivePrice(offer, now).toString(),
+      amount: price.toString(),
       currency: offer.currency,
     },
     availability: offer.availability,
@@ -116,6 +120,10 @@ export class CommercialService {
         },
       });
       if (!current) throw new NotFoundException('Merchant offer not found.');
+      if (!current.price)
+        throw new BadRequestException(
+          'A promotion requires a published price.',
+        );
       if (current.updatedAt.toISOString() !== input.expectedUpdatedAt)
         throw new ConflictException(
           'This offer changed. Reload before saving.',
@@ -164,8 +172,11 @@ export class CommercialService {
         promotionText,
         promotionEndsAt,
       };
-      const oldPrice = effectivePrice(current, now),
-        newPrice = effectivePrice(next, now);
+      const oldPrice = effectivePrice(
+          { ...current, price: current.price },
+          now,
+        ),
+        newPrice = effectivePrice({ ...next, price: current.price }, now);
       await tx.merchantProduct.update({
         where: { id: offerId },
         data: {
@@ -286,8 +297,9 @@ export class CommercialService {
   }> {
     const now = new Date();
     const where: Prisma.MerchantProductWhereInput = {
+      price: { not: null },
       active: true,
-      merchant: { active: true },
+      merchant: PUBLIC_MERCHANT_WHERE,
       product: { status: 'ACTIVE' },
       availability: { not: 'OUT_OF_STOCK' },
       OR: [
@@ -332,8 +344,9 @@ export class CommercialService {
       this.prisma.merchantProduct.findMany({
         where: {
           sponsored: true,
+          price: { not: null },
           active: true,
-          merchant: { active: true },
+          merchant: PUBLIC_MERCHANT_WHERE,
           product: { status: 'ACTIVE' },
           availability: 'IN_STOCK',
         },
@@ -342,7 +355,7 @@ export class CommercialService {
         take: 12,
       }),
       this.prisma.merchant.findMany({
-        where: { sponsored: true, active: true },
+        where: { sponsored: true, ...PUBLIC_MERCHANT_WHERE },
         select: { id: true, slug: true, name: true, city: true, logoUrl: true },
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
         take: 12,

@@ -86,6 +86,8 @@ run('merchant offers and XLSX integration', () => {
     };
   }
   function updateInput(current = offer): UpdateMerchantOfferDto {
+    if (!current.price)
+      throw new Error('This test helper requires a priced offer.');
     return {
       merchantSku: current.merchantSku,
       price: current.price.amount,
@@ -151,6 +153,116 @@ run('merchant offers and XLSX integration', () => {
       oldCurrency: null,
       actorId: 'firebase:creator-uid',
     });
+  });
+
+  it('creates an unpriced listing without fake history and protects installed clients', async () => {
+    const unknown = await offers.create(
+      otherMerchantId,
+      createInput({
+        price: '',
+        priceOnRequest: true,
+        stock: '',
+        availability: 'UNKNOWN',
+        confirmWarnings: true,
+      }),
+    );
+    expect(unknown.price).toBeNull();
+    expect(unknown.currency).toBe('BRL');
+    expect(
+      await prisma.priceHistory.count({
+        where: { merchantProductId: unknown.id },
+      }),
+    ).toBe(0);
+    expect(
+      (await offers.list(otherMerchantId, new OfferQueryDto())).items,
+    ).toEqual([]);
+    expect(
+      (
+        await offers.list(otherMerchantId, {
+          ...new OfferQueryDto(),
+          includeUnpriced: true,
+        })
+      ).items,
+    ).toHaveLength(1);
+    await expect(
+      offers.detail(otherMerchantId, unknown.id),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(
+      (await offers.detail(otherMerchantId, unknown.id, true)).price,
+    ).toBeNull();
+    await expect(
+      offers.create(
+        otherMerchantId,
+        createInput({ price: '', priceOnRequest: true }),
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('withdraws and restores a confirmed price without a zero history entry or stale write', async () => {
+    const unknown = await offers.update(merchantId, offer.id, {
+      ...updateInput(),
+      price: '',
+      priceOnRequest: true,
+    });
+    expect(unknown.price).toBeNull();
+    await expect(
+      offers.update(merchantId, offer.id, updateInput()),
+    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(
+      offers.update(merchantId, offer.id, {
+        ...updateInput(),
+        price: '',
+        priceOnRequest: true,
+        currency: 'USD',
+        expectedUpdatedAt: unknown.updatedAt,
+      }),
+    ).rejects.toThrow('currency change');
+    const restored = await offers.update(merchantId, offer.id, {
+      ...updateInput(),
+      price: '125',
+      expectedUpdatedAt: unknown.updatedAt,
+    });
+    expect(restored.price?.amount).toBe('125.00');
+    const history = await prisma.priceHistory.findMany({
+      where: { merchantProductId: offer.id },
+      orderBy: { changedAt: 'asc' },
+    });
+    expect(history).toHaveLength(2);
+    expect(history[1].oldPrice).toBeNull();
+    expect(history[1].oldCurrency).toBeNull();
+    expect(history[1].newPrice.toString()).toBe('125');
+  });
+
+  it('imports a real price onto an unpriced listing with preview, confirmation and idempotency', async () => {
+    await offers.update(merchantId, offer.id, {
+      ...updateInput(),
+      price: '',
+      priceOnRequest: true,
+    });
+    const csv =
+      'merchantSku,productName,price,currency,stock,availability\nSKU-001,Produto,125,BRL,5,IN_STOCK\n';
+    const buffer = Buffer.from(csv);
+    const staged = await staging.stageCsv(
+      { merchantId },
+      {
+        originalname: 'priced.csv',
+        mimetype: 'text/csv',
+        buffer,
+        size: buffer.length,
+      },
+    );
+    const preview = await imports.detail(staged);
+    expect(preview.summary.invalid).toBe(0);
+    await commit.commit(staged, { confirmWarnings: true });
+    await commit.commit(staged, { confirmWarnings: true });
+    expect((await offers.detail(merchantId, offer.id)).price?.amount).toBe(
+      '125.00',
+    );
+    expect(
+      await prisma.priceHistory.count({
+        where: { merchantProductId: offer.id },
+      }),
+    ).toBe(2);
   });
 
   it('carries numeric SKU warnings through preview and blocks commit until explicitly acknowledged', async () => {
@@ -242,7 +354,7 @@ run('merchant offers and XLSX integration', () => {
         availability: 'IN_STOCK',
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
-    expect((await offers.detail(merchantId, offer.id)).price.amount).toBe(
+    expect((await offers.detail(merchantId, offer.id)).price?.amount).toBe(
       '100.00',
     );
   });
@@ -372,7 +484,7 @@ run('merchant offers and XLSX integration', () => {
         priceChanges: 1,
         invalid: 0,
       });
-      expect((await offers.detail(merchantId, offer.id)).price.amount).toBe(
+      expect((await offers.detail(merchantId, offer.id)).price?.amount).toBe(
         '100.00',
       );
       expect(
@@ -394,7 +506,7 @@ run('merchant offers and XLSX integration', () => {
       expect(history).toHaveLength(1);
       expect(history[0].source).toBe(format.toUpperCase());
       expect(history[0].actorId).toBe('firebase:committer-uid');
-      expect((await offers.detail(merchantId, offer.id)).price.amount).toBe(
+      expect((await offers.detail(merchantId, offer.id)).price?.amount).toBe(
         '110.00',
       );
     },
@@ -453,7 +565,7 @@ run('merchant offers and XLSX integration', () => {
     await expect(
       commit.commit(id, { confirmWarnings: false }),
     ).rejects.toBeInstanceOf(ConflictException);
-    expect((await offers.detail(merchantId, offer.id)).price.amount).toBe(
+    expect((await offers.detail(merchantId, offer.id)).price?.amount).toBe(
       '100.00',
     );
   });

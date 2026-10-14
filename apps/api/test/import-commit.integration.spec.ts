@@ -253,6 +253,7 @@ describeWithDatabase('CSV import commit integration', () => {
       select: { price: true },
     });
     expect(firstHistory.oldPrice?.toString()).toBe('100');
+    if (!currentOffer.price) throw new Error('Expected committed price.');
     expect(firstHistory.newPrice.toString()).toBe(
       currentOffer.price.toString(),
     );

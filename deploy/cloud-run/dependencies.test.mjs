@@ -14,7 +14,9 @@ const lock = JSON.parse(
 );
 
 const fixes = [
-  ["@nestjs/platform-express", "multer", "2.3.0"],
+  ["@nestjs/platform-express", "multer", "2.4.0"],
+  ["@nestjs/swagger", "js-yaml", "5.4.3"],
+  ["express", "proxy-addr", "2.0.8"],
   ["@prisma/config", "deepmerge-ts", "8.0.2"],
   ["prisma", "mysql2", "3.24.4"],
   ["exceljs", "uuid", "11.1.1"],
@@ -57,6 +59,8 @@ for (const [parent, child, expected] of fixes) {
     );
     assert.ok(copies.length > 0);
     for (const [, pkg] of copies) {
+      // The reviewed YAML issue affects v5; unrelated tooling still uses v4.
+      if (child === "js-yaml" && pkg.version.startsWith("4.")) continue;
       // Firebase also uses newer, already-fixed UUID releases through gaxios 7.
       if (child === "uuid") assert.ok(Number(pkg.version.split(".")[0]) > 11 || pkg.version === expected);
       else assert.equal(pkg.version, expected);

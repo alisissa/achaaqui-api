@@ -42,6 +42,32 @@ import type { ParsedCsvRow } from './csv-parser';
 import type { AdminImportDetailDto } from './imports.dto';
 
 const busy = (): HttpException => new HttpException('PHOTO_LIMIT_REACHED', 429);
+
+// Who is uploading, and how to re-check their authority inside a transaction.
+interface PhotoUploader {
+  merchantId: string;
+  actorId: string;
+  lock: (tx: Prisma.TransactionClient) => Promise<void>;
+}
+
+const merchantUploader = (actor: MerchantActor): PhotoUploader => ({
+  merchantId: actor.merchantId,
+  actorId: `merchant:${actor.userId}`,
+  lock: (tx) => lockMerchantAccess(tx, actor),
+});
+
+// A platform admin uploads on a store's behalf: the store must be active and not deleted.
+const adminUploader = (merchantId: string, actorId: string): PhotoUploader => ({
+  merchantId,
+  actorId,
+  lock: async (tx) => {
+    const rows = await tx.$queryRaw<{ active: boolean }[]>`
+      SELECT active FROM "Merchant"
+      WHERE id = ${merchantId}::uuid AND "deletedAt" IS NULL FOR SHARE`;
+    if (!rows[0]?.active)
+      throw new NotFoundException('Active merchant not found.');
+  },
+});
 const EDIT_SELECT = {
   sourceType: true,
   status: true,
@@ -80,22 +106,41 @@ export class PhotoImportService {
     actor: MerchantActor,
     file: UploadedCsvFile | undefined,
   ): Promise<AdminImportDetailDto> {
+    const id = await this.read(merchantUploader(actor), file);
+    return await this.imports.detail(id, actor.merchantId);
+  }
+
+  // Admin reads a store's price-list photo. Same OCR, quotas and preview as the
+  // merchant app; committing still goes through the normal admin import review.
+  async adminUpload(
+    merchantId: string,
+    actorId: string,
+    file: UploadedCsvFile | undefined,
+  ): Promise<AdminImportDetailDto> {
+    const id = await this.read(adminUploader(merchantId, actorId), file);
+    return await this.imports.detail(id);
+  }
+
+  private async read(
+    uploader: PhotoUploader,
+    file: UploadedCsvFile | undefined,
+  ): Promise<string> {
     this.requireEnabled();
     if (this.inFlight >= 1) throw new HttpException('PHOTO_READER_BUSY', 429);
     this.inFlight++;
     let id: string | undefined;
     try {
       const image = await this.ocr.sanitize(file);
-      id = await this.reserve(actor, image);
+      id = await this.reserve(uploader, image);
       const extracted = await this.ocr.extract(image);
       const prepared = await this.staging.prepareRows(
-        actor.merchantId,
+        uploader.merchantId,
         extracted,
       );
       await this.prisma.$transaction(async (tx) => {
-        await lockMerchantAccess(tx, actor);
+        await uploader.lock(tx);
         await tx.import.update({
-          where: { id, merchantId: actor.merchantId, status: 'UPLOADED' },
+          where: { id, merchantId: uploader.merchantId, status: 'UPLOADED' },
           data: {
             status: 'READY',
             previewedAt: new Date(),
@@ -104,11 +149,11 @@ export class PhotoImportService {
           },
         });
       });
-      return await this.imports.detail(id, actor.merchantId);
+      return id;
     } catch (error: unknown) {
       if (id)
         await this.prisma.import.updateMany({
-          where: { id, merchantId: actor.merchantId, status: 'UPLOADED' },
+          where: { id, merchantId: uploader.merchantId, status: 'UPLOADED' },
           data: { status: 'FAILED', failedAt: new Date() },
         });
       throw error;
@@ -117,9 +162,12 @@ export class PhotoImportService {
     }
   }
 
-  private async reserve(actor: MerchantActor, image: Buffer): Promise<string> {
+  private async reserve(
+    uploader: PhotoUploader,
+    image: Buffer,
+  ): Promise<string> {
     return await this.prisma.$transaction(async (tx) => {
-      await lockMerchantAccess(tx, actor);
+      await uploader.lock(tx);
       // Serialize quota reservation across processes/restarts, not only per IP.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('photo-import-quota', 0))`;
       const day = new Date();
@@ -130,22 +178,22 @@ export class PhotoImportService {
       const own = await tx.import.count({
         where: {
           sourceType: 'PHOTO',
-          merchantId: actor.merchantId,
+          merchantId: uploader.merchantId,
           createdAt: { gte: day },
         },
       });
       const recent = await tx.import.count({
         where: {
           sourceType: 'PHOTO',
-          merchantId: actor.merchantId,
+          merchantId: uploader.merchantId,
           createdAt: { gte: new Date(Date.now() - 60_000) },
         },
       });
       if (global >= 20 || own >= 20 || recent >= 3) throw busy();
       const item = await tx.import.create({
         data: {
-          merchantId: actor.merchantId,
-          actorId: `merchant:${actor.userId}`,
+          merchantId: uploader.merchantId,
+          actorId: uploader.actorId,
           sourceType: 'PHOTO',
           status: 'UPLOADED',
           originalFilename: 'photo.jpg',

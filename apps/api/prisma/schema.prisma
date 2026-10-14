@@ -161,6 +161,9 @@ model Merchant {
   email          String?           @db.VarChar(240)
   websiteUrl     String?
   active         Boolean           @default(true)
+  // Soft delete: the row and its history stay; the merchant disappears everywhere.
+  deletedAt      DateTime?         @db.Timestamptz(3)
+  deletedBy      String?           @db.VarChar(180)
   createdAt      DateTime          @default(now()) @db.Timestamptz(3)
   updatedAt      DateTime          @updatedAt @db.Timestamptz(3)
   offers         MerchantProduct[]
@@ -202,7 +205,7 @@ model MerchantProduct {
   merchantId      String            @db.Uuid
   productId       String            @db.Uuid
   merchantSku     String            @db.VarChar(120)
-  price           Decimal           @db.Decimal(14, 2)
+  price           Decimal?          @db.Decimal(14, 2)
   salePrice       Decimal?          @db.Decimal(14, 2)
   saleEndsAt      DateTime?         @db.Timestamptz(3)
   promotionText   String?           @db.VarChar(500)

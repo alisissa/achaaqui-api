@@ -48,7 +48,13 @@ export class ProductsController {
   @Header('Cache-Control', 'no-store')
   @ApiOkResponse({ type: ProductDetailDto })
   @ApiNotFoundResponse({ description: 'Product not found.' })
-  async detail(@Param() params: SlugParamDto): Promise<ProductDetailDto> {
-    return await this.productsService.detail(params.slug);
+  async detail(
+    @Param() params: SlugParamDto,
+    @Query('includeUnpriced') includeUnpriced?: string,
+  ): Promise<ProductDetailDto> {
+    return await this.productsService.detail(
+      params.slug,
+      includeUnpriced === 'true',
+    );
   }
 }

@@ -1,0 +1,47 @@
+{
+  "date": "2026-10-08",
+  "scope": "Approved public exclusion of the reserved reviewer merchant and its test-only products; preserve reviewer access",
+  "reviewMerchantId": "6b2200cf-d7fc-5f1c-a194-69192bc128fe",
+  "project": "achaaqui-web",
+  "region": "us-east4",
+  "service": "achaaqui-api",
+  "previousRevision": "achaaqui-api-00014-2j8",
+  "readyRevision": "achaaqui-api-00015-2b6",
+  "trafficPercent": 100,
+  "image": "us-east4-docker.pkg.dev/achaaqui-web/achaaqui/api@sha256:55ee10b22465c2a21db5afd84b56ec622184284ed022b12a1261a34754a988b8",
+  "deployment": "Etag-protected image-only update, validateOnly preflight; existing runtime configuration, scaling, traffic policy and IAM verified unchanged",
+  "implementation": [
+    "Shared public query predicates exclude the exact reserved review merchant, not a name pattern",
+    "Hide products offered exclusively by that merchant, including removed offers; preserve shared real products and normal products without offers",
+    "Public product search, details, history, category counts, merchant pages, highlights, promotions and review access use the public visibility boundary",
+    "Merchant authentication, admin visibility and merchant write/preview validation remain unchanged"
+  ],
+  "verification": {
+    "unitAndHttpTests": 181,
+    "isolatedPostgresqlIntegrationTests": 133,
+    "deploymentTests": 6,
+    "dependencyTests": 10,
+    "productionNpmAuditKnownVulnerabilities": 0,
+    "lintTypecheckBuild": "passed",
+    "packagedHttpSmoke": "passed against disposable local database",
+    "reviewerLoginAndOfferCreateRemoveRestore": "passed in isolated integration tests; production login not re-tested",
+    "publicMerchantCount": 2,
+    "marySuOfferCount": 5,
+    "mundialOfferCount": 5,
+    "publicProductCount": 10,
+    "publicProductImages": "All ten return HTTP 200 with image content types",
+    "publicDemoDetailAndOffers": "404",
+    "publicHighlightsAndPromotions": "No demo merchant"
+  },
+  "safety": {
+    "productionDatabaseWrites": false,
+    "productionMigrations": false,
+    "credentialChanges": false,
+    "newUiFields": false,
+    "adminOrHomepageDeployment": false,
+    "gitCommitOrPush": false,
+    "temporaryResources": "Removed only two task-labeled disposable test containers; temporary test data discarded. Existing persistent database volumes untouched."
+  },
+  "evidenceDirectory": "/private/tmp/achaaqui-demo-visibility-20261008.GMEmCL",
+  "sourceManifest": "/private/tmp/achaaqui-demo-visibility-20261008.GMEmCL/source.json"
+}

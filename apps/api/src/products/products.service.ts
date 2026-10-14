@@ -1,8 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import {
+  PUBLIC_MERCHANT_WHERE,
+  PUBLIC_PRODUCT_WHERE,
+} from '../common/public-catalog';
+import {
   COMMERCIAL_SELECT,
   effectivePrice,
   publicCommercial,
+  publicPrice,
 } from '../commercial/offer-pricing';
 import { searchCatalog } from './catalog-search';
 import {
@@ -46,7 +51,7 @@ const PRODUCT_CARD_SELECT = {
     select: { url: true },
   },
   offers: {
-    where: { active: true, merchant: { active: true } },
+    where: { active: true, merchant: PUBLIC_MERCHANT_WHERE },
     select: {
       ...COMMERCIAL_SELECT,
       price: true,
@@ -73,7 +78,7 @@ const PRODUCT_DETAIL_SELECT = {
     select: { id: true, url: true, altText: true, sortOrder: true },
   },
   offers: {
-    where: { active: true, merchant: { active: true } },
+    where: { active: true, merchant: PUBLIC_MERCHANT_WHERE },
     select: {
       ...COMMERCIAL_SELECT,
       id: true,
@@ -116,11 +121,13 @@ export function orderedOffers<
   T extends {
     availability: OfferAvailability;
     currency: string;
-    price: Prisma.Decimal;
+    price: Prisma.Decimal | null;
   },
 >(offers: readonly T[]): T[] {
   const now = new Date();
   return [...offers].sort((first, second) => {
+    if (!first.price || !second.price)
+      return Number(!first.price) - Number(!second.price);
     const availabilityDifference =
       availabilityRank(first.availability) -
       availabilityRank(second.availability);
@@ -128,7 +135,9 @@ export function orderedOffers<
     const currencyDifference = first.currency.localeCompare(second.currency);
     return currencyDifference !== 0
       ? currencyDifference
-      : effectivePrice(first, now).comparedTo(effectivePrice(second, now));
+      : (effectivePrice(first, now)?.comparedTo(
+          effectivePrice(second, now) ?? second.price,
+        ) ?? 0);
   });
 }
 
@@ -136,17 +145,18 @@ export function lowestPricesByCurrency<
   T extends {
     availability: OfferAvailability;
     currency: string;
-    price: Prisma.Decimal;
+    price: Prisma.Decimal | null;
   },
 >(offers: readonly T[]): Array<{ amount: string; currency: string }> {
   const lowest = new Map<string, T>();
   for (const offer of orderedOffers(offers)) {
+    if (!offer.price) continue;
     if (!lowest.has(offer.currency)) lowest.set(offer.currency, offer);
   }
-  return [...lowest.values()].map((offer) => ({
-    amount: effectivePrice(offer).toString(),
-    currency: offer.currency,
-  }));
+  return [...lowest.values()].flatMap((offer) => {
+    const price = publicPrice(offer);
+    return price ? [price] : [];
+  });
 }
 
 export function singleCurrencyBestPrice(
@@ -219,15 +229,21 @@ export class ProductsService {
     };
   }
 
-  async detail(slug: string): Promise<ProductDetailDto> {
+  async detail(
+    slug: string,
+    includeUnpriced = false,
+  ): Promise<ProductDetailDto> {
     const product = await this.prisma.product.findUnique({
-      where: { slug },
+      where: { slug, ...PUBLIC_PRODUCT_WHERE },
       select: PRODUCT_DETAIL_SELECT,
     });
 
     if (!product || product.status !== ProductStatus.ACTIVE) {
       throw new NotFoundException('Product not found.');
     }
+
+    if (!includeUnpriced)
+      product.offers = product.offers.filter((offer) => offer.price !== null);
 
     const merchantIds = product.offers.map((offer) => offer.merchant.id);
     const [productRatings, merchantRatings] = await Promise.all([
@@ -247,7 +263,7 @@ export class ProductsService {
     query: PriceHistoryQueryDto,
   ): Promise<PriceHistoryResponseDto> {
     const product = await this.prisma.product.findUnique({
-      where: { slug },
+      where: { slug, ...PUBLIC_PRODUCT_WHERE },
       select: { id: true, status: true },
     });
     if (!product || product.status !== ProductStatus.ACTIVE) {
@@ -261,9 +277,10 @@ export class ProductsService {
       changedAt: { gte: changedAfter },
       merchantProduct: {
         productId: product.id,
-        ...(query.merchantSlug
-          ? { merchant: { slug: query.merchantSlug, active: true } }
-          : {}),
+        merchant: {
+          ...PUBLIC_MERCHANT_WHERE,
+          ...(query.merchantSlug ? { slug: query.merchantSlug } : {}),
+        },
       },
     };
     const skip = (query.page - 1) * query.pageSize;
@@ -321,6 +338,7 @@ export class ProductsService {
 
     return {
       status: ProductStatus.ACTIVE,
+      AND: [PUBLIC_PRODUCT_WHERE],
       ...(query.categorySlug
         ? { category: { slug: query.categorySlug, active: true } }
         : {}),
@@ -329,7 +347,10 @@ export class ProductsService {
             offers: {
               some: {
                 active: true,
-                merchant: { slug: query.merchantSlug, active: true },
+                merchant: {
+                  slug: query.merchantSlug,
+                  ...PUBLIC_MERCHANT_WHERE,
+                },
               },
             },
           }
@@ -386,7 +407,9 @@ export class ProductsService {
       bestPrices,
       merchantCount: new Set(offers.map((offer) => offer.merchantId)).size,
       available: offers.some((offer) => offer.availability === 'IN_STOCK'),
-      freshness: this.freshnessService.forProduct(offers),
+      freshness: this.freshnessService.forProduct(
+        offers.filter((offer) => offer.price !== null),
+      ),
       createdAt: product.createdAt.toISOString(),
       rating,
     };
@@ -409,10 +432,7 @@ export class ProductsService {
         id: offer.id,
         merchantSku: '', // Retained for installed-client compatibility; internal identifier is private.
         merchant: offer.merchant,
-        price: {
-          amount: effectivePrice(offer).toString(),
-          currency: offer.currency,
-        },
+        price: publicPrice(offer),
         ...publicCommercial(offer),
         availability: offer.availability,
         stockQuantity: null, // Public availability only, never exact inventory.
@@ -440,7 +460,9 @@ export class ProductsService {
       bestPrice: singleCurrencyBestPrice(bestPrices),
       bestPrices,
       favoriteKey: product.slug,
-      freshness: this.freshnessService.forProduct(offers),
+      freshness: this.freshnessService.forProduct(
+        offers.filter((offer) => offer.price !== null),
+      ),
       rating: productRating,
       offers: responseOffers,
     };
