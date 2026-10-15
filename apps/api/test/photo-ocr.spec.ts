@@ -18,12 +18,24 @@ const row = (): Record<string, unknown> => ({
   availability: 'FALSE',
   uncertain: false,
 });
-const service = (): PhotoOcrService =>
-  new PhotoOcrService(
-    new ConfigService({
-      MISTRAL_API_KEY: 'test-only-key-not-a-real-provider-key',
-    }),
-  );
+// Test double: a fixed token instead of Google application default credentials.
+class TestOcr extends PhotoOcrService {
+  token: () => Promise<string> = () => Promise.resolve('test-only-token');
+  protected override accessToken(): Promise<string> {
+    return this.token();
+  }
+}
+const service = (): TestOcr =>
+  new TestOcr(new ConfigService({ FIREBASE_PROJECT_ID: 'achaaqui-web' }));
+const gemini = (rows: unknown, finishReason = 'STOP'): string =>
+  JSON.stringify({
+    candidates: [
+      {
+        finishReason,
+        content: { parts: [{ text: JSON.stringify({ rows }) }] },
+      },
+    ],
+  });
 afterEach(() => vi.unstubAllGlobals());
 
 describe('photo OCR boundary', () => {
@@ -83,26 +95,40 @@ describe('photo OCR boundary', () => {
       ).rejects.toThrow();
   });
   it('uses fixed HTTPS endpoint, no redirects, and validates annotation at runtime', async () => {
-    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          document_annotation: JSON.stringify({ rows: [row()] }),
-        }),
-        { status: 200 },
-      ),
-    );
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(gemini([row()]), { status: 200 }));
     vi.stubGlobal('fetch', fetcher);
     expect(
       (await service().extract(Buffer.from('test')))[0].rawData.merchantSku,
     ).toBe('00123');
     const [url, options] = fetcher.mock.calls[0];
-    expect(url).toBe('https://api.mistral.ai/v1/ocr');
+    expect(url).toBe(
+      'https://aiplatform.googleapis.com/v1/projects/achaaqui-web/locations/global/publishers/google/models/gemini-2.5-flash:generateContent',
+    );
     expect(options?.redirect).toBe('error');
+    expect((options?.headers as Record<string, string>).Authorization).toBe(
+      'Bearer test-only-token',
+    );
     if (typeof options?.body !== 'string')
       throw new Error('Expected JSON body');
-    expect((JSON.parse(options.body) as { model: string }).model).toBe(
-      'mistral-ocr-4-1',
+    const body = JSON.parse(options.body) as {
+      generationConfig: { temperature: number; responseMimeType: string };
+    };
+    expect(body.generationConfig).toMatchObject({
+      temperature: 0,
+      responseMimeType: 'application/json',
+    });
+  });
+  it('reports the reader as unavailable when no Google credential is available', async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
+    const ocr = service();
+    ocr.token = () => Promise.reject(new Error('no credentials'));
+    await expect(ocr.extract(Buffer.from('test'))).rejects.toThrow(
+      'PHOTO_UNAVAILABLE',
     );
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it('flattens transparent PNGs onto white before JPEG encoding', async () => {
     const buffer = await sharp({
@@ -127,20 +153,57 @@ describe('photo OCR boundary', () => {
     expect(info.channels).toBe(3);
     expect([...data.subarray(0, 3)]).toEqual([255, 255, 255]);
   });
-  it('hides provider error bodies and does not retry paid calls', async () => {
-    const fetcher = vi
-      .fn()
-      .mockResolvedValue(new Response('secret-provider-body', { status: 429 }));
-    vi.stubGlobal('fetch', fetcher);
-    await expect(service().extract(Buffer.from('test'))).rejects.toThrow(
-      'PHOTO_PROVIDER_BUSY',
-    );
-    expect(fetcher).toHaveBeenCalledTimes(1);
+  it('hides provider error bodies and retries only a throttled call, once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      const busy = vi
+        .fn()
+        .mockImplementation(() =>
+          Promise.resolve(
+            new Response('secret-provider-body', { status: 429 }),
+          ),
+        );
+      vi.stubGlobal('fetch', busy);
+      const throttled = service().extract(Buffer.from('test'));
+      const assertion = expect(throttled).rejects.toThrow(
+        'PHOTO_PROVIDER_BUSY',
+      );
+      await vi.advanceTimersByTimeAsync(3_000);
+      await assertion;
+      expect(busy).toHaveBeenCalledTimes(2);
+
+      const failing = vi
+        .fn()
+        .mockResolvedValue(
+          new Response('secret-provider-body', { status: 500 }),
+        );
+      vi.stubGlobal('fetch', failing);
+      await expect(service().extract(Buffer.from('test'))).rejects.toThrow(
+        'PHOTO_UNAVAILABLE',
+      );
+      expect(failing).toHaveBeenCalledTimes(1);
+
+      const recovers = vi
+        .fn()
+        .mockResolvedValueOnce(new Response('', { status: 429 }))
+        .mockResolvedValueOnce(new Response(gemini([row()]), { status: 200 }));
+      vi.stubGlobal('fetch', recovers);
+      const read = service().extract(Buffer.from('test'));
+      await vi.advanceTimersByTimeAsync(3_000);
+      expect((await read)[0].rawData.merchantSku).toBe('00123');
+    } finally {
+      vi.useRealTimers();
+    }
   });
   it('rejects malformed and oversized provider responses', async () => {
     for (const body of [
       'not json',
-      JSON.stringify({ document_annotation: '{broken' }),
+      JSON.stringify({
+        candidates: [
+          { finishReason: 'STOP', content: { parts: [{ text: '{broken' }] } },
+        ],
+      }),
+      gemini([row()], 'MAX_TOKENS'),
       'x'.repeat(2 * 1024 * 1024 + 1),
     ]) {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body)));

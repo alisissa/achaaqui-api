@@ -586,6 +586,24 @@ run('photo import HTTP isolation and lifecycle', () => {
         actorId: 'firebase:test-admin',
         status: 'READY',
       });
+      // The merchant-app switch blocks only app uploads; admin uploads still work.
+      config.set('MERCHANT_PHOTO_IMPORT_ENABLED', false);
+      try {
+        expect(
+          (await call('/merchant/imports/photo', 'POST', uploadBody())).status,
+        ).toBe(404);
+        expect(providerCalls).toBe(before + 1);
+        const again = await call(
+          '/admin/imports/photo',
+          'POST',
+          adminForm(),
+          ADMIN_TOKEN,
+        );
+        expect(again.status).toBe(201);
+        expect(providerCalls).toBe(before + 2);
+      } finally {
+        config.set('MERCHANT_PHOTO_IMPORT_ENABLED', true);
+      }
       // A merchant login cannot use the admin route, and nothing reaches the provider.
       expect(
         (await call('/admin/imports/photo', 'POST', adminForm())).status,
@@ -598,7 +616,7 @@ run('photo import HTTP isolation and lifecycle', () => {
         (await call('/admin/imports/photo', 'POST', adminForm(), ADMIN_TOKEN))
           .status,
       ).toBe(404);
-      expect(providerCalls).toBe(before + 1);
+      expect(providerCalls).toBe(before + 2);
     } finally {
       await prisma.importRow.deleteMany({
         where: { import: { merchantId: storeId } },
