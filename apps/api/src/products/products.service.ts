@@ -46,6 +46,7 @@ const PRODUCT_CARD_SELECT = {
   brand: { select: { id: true, slug: true, name: true } },
   category: { select: { id: true, slug: true, name: true } },
   images: {
+    where: { deletedAt: null },
     take: 1,
     orderBy: { sortOrder: 'asc' },
     select: { url: true },
@@ -74,6 +75,7 @@ const PRODUCT_DETAIL_SELECT = {
   brand: { select: { id: true, slug: true, name: true } },
   category: { select: { id: true, slug: true, name: true } },
   images: {
+    where: { deletedAt: null },
     orderBy: { sortOrder: 'asc' },
     select: { id: true, url: true, altText: true, sortOrder: true },
   },

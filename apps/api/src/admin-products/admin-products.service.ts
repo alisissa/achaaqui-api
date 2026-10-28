@@ -87,6 +87,7 @@ export class AdminProductsService {
         brand: { select: { name: true } },
         category: { select: { id: true, name: true } },
         images: {
+          where: { deletedAt: null },
           orderBy: { sortOrder: 'asc' },
           take: 1,
           select: { url: true },
