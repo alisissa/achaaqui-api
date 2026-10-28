@@ -14,9 +14,10 @@ const lock = JSON.parse(
 );
 
 const fixes = [
-  ["@nestjs/platform-express", "multer", "2.4.0"],
+  ["@nestjs/platform-express", "multer", "2.5.0"],
   ["@nestjs/swagger", "js-yaml", "5.4.3"],
   ["express", "proxy-addr", "2.0.8"],
+  ["express", "body-parser", "2.4.0"],
   ["@prisma/config", "deepmerge-ts", "8.0.2"],
   ["prisma", "mysql2", "3.24.4"],
   ["exceljs", "uuid", "11.1.1"],
