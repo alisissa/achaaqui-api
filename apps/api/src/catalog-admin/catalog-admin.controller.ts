@@ -1,8 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
+  Patch,
   Post,
   Res,
   UploadedFile,
@@ -15,11 +17,17 @@ import type { Response } from 'express';
 import { AdminApiKeyGuard } from '../admin-auth/admin-api-key.guard';
 import { ActorId } from '../admin-auth/admin-actor';
 import { CatalogAdminService } from './catalog-admin.service';
+import { CatalogGalleryService } from './catalog-gallery.service';
 import {
+  AddCatalogImage,
+  CatalogGalleryImageParam,
   CatalogImageParam,
   CatalogProductParam,
   CreateCatalogCategory,
+  DeleteCatalogImage,
+  ReorderCatalogImages,
   UpdateCatalogPresentation,
+  type CatalogGallery,
   type CatalogPresentation,
 } from './catalog-admin.dto';
 import { CATALOG_IMAGE_MAX_BYTES, type CatalogUpload } from './catalog-image';
@@ -40,7 +48,10 @@ const uploadLimits = {
 @UseGuards(AdminApiKeyGuard)
 @Controller('admin/catalog')
 export class CatalogAdminController {
-  constructor(private readonly catalog: CatalogAdminService) {}
+  constructor(
+    private readonly catalog: CatalogAdminService,
+    private readonly gallery: CatalogGalleryService,
+  ) {}
 
   @Get('products/:productId/presentation')
   async detail(
@@ -72,6 +83,58 @@ export class CatalogAdminController {
     @ActorId() actor: string,
   ): Promise<CatalogPresentation> {
     return await this.catalog.update(params.productId, input, file, actor);
+  }
+
+  @Get('products/:productId/images')
+  async images(@Param() params: CatalogProductParam): Promise<CatalogGallery> {
+    return await this.gallery.gallery(params.productId);
+  }
+
+  @Post('products/:productId/images')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['expectedUpdatedAt', 'altText', 'confirmed', 'image'],
+      properties: {
+        expectedUpdatedAt: { type: 'string', format: 'date-time' },
+        altText: { type: 'string', maxLength: 240 },
+        confirmed: { type: 'string', enum: ['true'] },
+        image: { type: 'string', format: 'binary' },
+      },
+    },
+  })
+  @UseInterceptors(FileInterceptor('image', { limits: uploadLimits }))
+  async addImage(
+    @Param() params: CatalogProductParam,
+    @Body() input: AddCatalogImage,
+    @UploadedFile() file: CatalogUpload | undefined,
+    @ActorId() actor: string,
+  ): Promise<CatalogGallery> {
+    return await this.gallery.add(params.productId, input, file, actor);
+  }
+
+  @Patch('products/:productId/images')
+  async reorderImages(
+    @Param() params: CatalogProductParam,
+    @Body() input: ReorderCatalogImages,
+    @ActorId() actor: string,
+  ): Promise<CatalogGallery> {
+    return await this.gallery.reorder(params.productId, input, actor);
+  }
+
+  @Delete('products/:productId/images/:imageId')
+  async deleteImage(
+    @Param() params: CatalogGalleryImageParam,
+    @Body() input: DeleteCatalogImage,
+    @ActorId() actor: string,
+  ): Promise<CatalogGallery> {
+    return await this.gallery.remove(
+      params.productId,
+      params.imageId,
+      input,
+      actor,
+    );
   }
 
   @Post('categories')

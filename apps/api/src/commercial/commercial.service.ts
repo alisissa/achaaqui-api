@@ -37,6 +37,7 @@ const publicOfferSelect = {
       slug: true,
       name: true,
       images: {
+        where: { deletedAt: null },
         take: 1,
         orderBy: { sortOrder: 'asc' as const },
         select: { url: true },

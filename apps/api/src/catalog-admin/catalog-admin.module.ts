@@ -5,11 +5,12 @@ import {
   CatalogImagesController,
 } from './catalog-admin.controller';
 import { CatalogAdminService } from './catalog-admin.service';
+import { CatalogGalleryService } from './catalog-gallery.service';
 import { CatalogImageStorage } from './catalog-image-storage';
 
 @Module({
   imports: [AdminAuthModule],
   controllers: [CatalogAdminController, CatalogImagesController],
-  providers: [CatalogAdminService, CatalogImageStorage],
+  providers: [CatalogAdminService, CatalogGalleryService, CatalogImageStorage],
 })
 export class CatalogAdminModule {}

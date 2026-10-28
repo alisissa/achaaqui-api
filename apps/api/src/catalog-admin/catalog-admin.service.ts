@@ -21,7 +21,7 @@ const selection = {
   categoryId: true,
   updatedAt: true,
   images: {
-    where: { sortOrder: 0 },
+    where: { sortOrder: 0, deletedAt: null },
     select: { url: true, altText: true },
     take: 1,
   },
@@ -205,8 +205,9 @@ export class CatalogAdminService {
   }
 
   async image(filename: string): Promise<Buffer> {
+    // Only photos still shown on a product are served; soft deleted ones 404.
     const linked = await this.prisma.productImage.findFirst({
-      where: { objectKey: `catalog/products/${filename}` },
+      where: { objectKey: `catalog/products/${filename}`, deletedAt: null },
       select: { id: true },
     });
     if (!linked) throw new NotFoundException('Image not found.');
